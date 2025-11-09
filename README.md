@@ -1,486 +1,298 @@
 # Log Ingestion Platform
 
-A high-performance observability platform built with Express.js for ingesting, storing, and querying logs at scale.
+A minimal, production-ready log ingestion platform built with clean hexagonal architecture. Designed for simplicity and extensibility.
 
-## 🚀 Features
+## Features
 
-- **High-throughput log ingestion** - Batch processing with configurable buffer sizes
-- **Time-series storage** - ClickHouse optimized for analytical queries
-- **Flexible querying** - Rich query API with filtering, aggregation, and full-text search
-- **Dashboard management** - Create and manage custom dashboards
-- **Schema registry** - Automatic schema detection and validation
-- **Caching** - Redis-based query result caching
-- **Production-ready** - Compression, monitoring, error handling, and graceful shutdown
+- ✅ **Clean Architecture**: Hexagonal (Ports & Adapters) design
+- ✅ **Fast Storage**: ClickHouse for high-performance time-series data
+- ✅ **Simple API**: Single REST endpoint for log ingestion
+- ✅ **Docker Ready**: Zero-config local development with Docker Compose
+- ✅ **Production Ready**: Graceful shutdown, error handling, and health checks
 
-## 📋 Architecture
+## Architecture
 
 ```
-┌─────────────┐
-│   Clients   │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────────────────────────┐
-│         Express.js API Layer            │
-│  ┌──────────┬──────────┬──────────┐    │
-│  │Ingestion │  Query   │Dashboard │    │
-│  │  Routes  │  Routes  │ Routes   │    │
-│  └──────────┴──────────┴──────────┘    │
-└─────────┬───────────────────────────────┘
-          │
-    ┌─────┴─────┬─────────┬────────┐
-    ▼           ▼         ▼        ▼
-┌──────────┐ ┌────────┐ ┌────┐ ┌──────┐
-│ClickHouse│ │MongoDB │ │Redis│ │Batch │
-│  (Logs)  │ │ (Meta) │ │Cache│ │Queue │
-└──────────┘ └────────┘ └────┘ └──────┘
+src/
+├── core/                    # Business Logic (Framework-Independent)
+│   ├── entities/           # Domain entities with validation
+│   ├── use-cases/          # Business use cases
+│   └── ports/              # Interfaces for adapters
+├── adapters/               # External Interface Implementations
+│   ├── http/              # Express REST API
+│   └── repositories/      # Database implementations
+└── config/                 # Configuration & DI
 ```
 
-### Technology Stack
+### Architecture Principles
 
-- **Node.js + Express.js** - API framework
-- **ClickHouse** - Time-series analytics database for logs
-- **MongoDB** - Application state (dashboards, users, schemas)
-- **Redis** - Query caching and session management
-- **Pino** - High-performance logging
-- **Docker** - Containerization
+- **Core Layer**: Contains pure business logic with no external dependencies
+- **Ports**: Define interfaces that adapters must implement
+- **Adapters**: Implement external concerns (HTTP, databases, etc.)
+- **Dependency Injection**: Simple manual DI for clean dependency management
 
-## 🛠️ Installation
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 18+ 
-- Docker and Docker Compose (for databases)
-- Or manually install: ClickHouse, MongoDB, Redis
+- Docker & Docker Compose
 
-### Quick Start with Docker
-
-1. **Clone and install dependencies:**
+### 1. Clone and Install
 
 ```bash
-git clone <repository>
-cd log-ingestion-platform
 npm install
 ```
 
-2. **Configure environment:**
+### 2. Configure Environment
 
-```bash
-cp .env.example .env
-# Edit .env with your configuration
+Create a `.env` file (or copy from `.env.example`):
+
+```env
+PORT=3000
+NODE_ENV=development
+
+CLICKHOUSE_HOST=http://localhost:8123
+CLICKHOUSE_DATABASE=logs_db
+CLICKHOUSE_USER=default
+CLICKHOUSE_PASSWORD=
 ```
 
-3. **Start databases with Docker Compose:**
+### 3. Start Infrastructure
 
 ```bash
-cd docker
 docker-compose up -d
 ```
 
-4. **Initialize databases:**
+This will start:
+- **ClickHouse** on port 8123 (HTTP) and 9000 (native)
+- Automatically creates the database and schema
+
+### 4. Start the Application
 
 ```bash
-npm run setup:clickhouse
-npm run setup:mongodb
-```
-
-5. **Start the application:**
-
-```bash
+# Development mode (with auto-reload)
 npm run dev
+
+# Production mode
+npm start
 ```
 
-The API will be available at `http://localhost:3000`
+The server will start on `http://localhost:3000`
 
-## 📚 API Documentation
+## API Usage
 
 ### Health Check
 
 ```bash
-GET /health
+curl http://localhost:3000/health
 ```
 
-Returns system health status and database connectivity.
-
-### Log Ingestion
-
-#### Ingest Single Log
-
-```bash
-POST /api/v1/ingest
-Headers: x-api-key: YOUR_API_KEY
-Content-Type: application/json
-
+**Response:**
+```json
 {
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "level": "INFO",
-  "message": "Application started",
-  "service": "api-gateway",
-  "metadata": {
-    "version": "1.0.0",
-    "environment": "production"
-  },
-  "source": {
-    "host": "server-01",
-    "environment": "production"
-  }
+  "success": true,
+  "message": "Service is healthy",
+  "timestamp": "2024-01-15T10:30:00.000Z"
 }
 ```
 
-#### Ingest Batch
+### Ingest Log Entry
 
 ```bash
-POST /api/v1/ingest/batch
-Headers: x-api-key: YOUR_API_KEY
-
-{
-  "logs": [
-    {
-      "level": "INFO",
-      "message": "Request received",
-      "service": "api"
+curl -X POST http://localhost:3000/api/logs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "level": "error",
+    "message": "Database connection failed",
+    "source": "api-service",
+    "metadata": {
+      "environment": "production",
+      "region": "us-east-1"
     },
-    {
-      "level": "ERROR",
-      "message": "Database connection failed",
-      "service": "api"
-    }
-  ]
-}
+    "trace_id": "abc-123-def-456",
+    "user_id": "user-789"
+  }'
 ```
 
-### Query Logs
-
-```bash
-POST /api/v1/query/logs
-Headers: Authorization: Bearer YOUR_JWT_TOKEN
-
+**Response (Success):**
+```json
 {
-  "timeRange": {
-    "start": "2024-01-01T00:00:00.000Z",
-    "end": "2024-01-02T00:00:00.000Z"
-  },
-  "service": "api-gateway",
-  "level": "ERROR",
-  "search": "database",
-  "limit": 100,
-  "offset": 0
-}
-```
-
-### Aggregation Queries
-
-#### Logs by Level
-
-```bash
-POST /api/v1/query/by-level
-{
-  "timeRange": {
-    "start": "2024-01-01T00:00:00.000Z",
-    "end": "2024-01-02T00:00:00.000Z"
-  }
-}
-```
-
-#### Logs by Service
-
-```bash
-POST /api/v1/query/by-service
-{
-  "timeRange": {
-    "start": "2024-01-01T00:00:00.000Z",
-    "end": "2024-01-02T00:00:00.000Z"
-  }
-}
-```
-
-#### Time Series
-
-```bash
-POST /api/v1/query/timeseries
-{
-  "timeRange": {
-    "start": "2024-01-01T00:00:00.000Z",
-    "end": "2024-01-02T00:00:00.000Z"
-  },
-  "interval": "1 minute",
-  "service": "api-gateway"
-}
-```
-
-### Dashboard Management
-
-```bash
-# List dashboards
-GET /api/v1/dashboards
-
-# Get dashboard
-GET /api/v1/dashboards/:id
-
-# Create dashboard
-POST /api/v1/dashboards
-{
-  "name": "System Overview",
-  "description": "Main system dashboard",
-  "widgets": [],
-  "timeRange": "24h"
-}
-
-# Update dashboard
-PUT /api/v1/dashboards/:id
-
-# Delete dashboard
-DELETE /api/v1/dashboards/:id
-```
-
-### Schema Registry
-
-```bash
-# Register schema
-POST /api/v1/schemas/register
-{
-  "name": "api_logs",
-  "version": "1.0.0",
-  "fields": [
-    {
-      "name": "timestamp",
-      "type": "date",
-      "required": true
+  "success": true,
+  "message": "Log entry ingested successfully",
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "timestamp": "2024-01-15T10:30:00.123Z",
+    "level": "error",
+    "message": "Database connection failed",
+    "source": "api-service",
+    "metadata": {
+      "environment": "production",
+      "region": "us-east-1"
     },
-    {
-      "name": "level",
-      "type": "string",
-      "required": true
-    }
-  ],
-  "services": ["api-gateway"]
+    "trace_id": "abc-123-def-456",
+    "user_id": "user-789"
+  }
 }
-
-# List schemas
-GET /api/v1/schemas
-
-# Get schema
-GET /api/v1/schemas/:name
 ```
 
-## ⚙️ Configuration
+**Response (Validation Error):**
+```json
+{
+  "success": false,
+  "message": "Failed to ingest log entry",
+  "error": "Level must be one of: debug, info, warn, error, fatal"
+}
+```
 
-### Environment Variables
+## Log Entry Schema
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `level` | string | Yes | Log level: debug, info, warn, error, fatal |
+| `message` | string | Yes | Log message |
+| `source` | string | Yes | Source/service name |
+| `metadata` | object | No | Additional structured data |
+| `trace_id` | string | No | Distributed tracing ID |
+| `user_id` | string | No | User identifier |
+| `timestamp` | string | No | ISO 8601 timestamp (auto-generated if not provided) |
+
+## Database Schema
+
+ClickHouse table structure (auto-created on startup):
+
+```sql
+CREATE TABLE logs (
+    id String,
+    timestamp DateTime64(3),
+    level LowCardinality(String),
+    message String,
+    source LowCardinality(String),
+    metadata String,
+    trace_id String,
+    user_id String,
+    created_at DateTime DEFAULT now()
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (timestamp, level, source)
+TTL timestamp + INTERVAL 90 DAY;
+```
+
+Features:
+- **Partitioned by month** for efficient querying
+- **TTL of 90 days** for automatic cleanup
+- **LowCardinality** for level and source (better compression)
+- **Optimized ordering** for time-series queries
+
+## Querying Logs
+
+Access ClickHouse directly to query logs:
 
 ```bash
-# Server
-PORT=3000
-NODE_ENV=development
+# Via Docker
+docker exec -it log-platform-clickhouse clickhouse-client
 
-# ClickHouse
-CLICKHOUSE_HOST=localhost
-CLICKHOUSE_PORT=8123
-CLICKHOUSE_DATABASE=logs_db
-CLICKHOUSE_USER=default
-CLICKHOUSE_PASSWORD=
-
-# MongoDB
-MONGODB_URI=mongodb://localhost:27017/observability_platform
-MONGODB_POOL_SIZE=10
-
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-
-# Performance
-BATCH_SIZE=10000          # Logs per batch
-BATCH_TIMEOUT=1000        # Milliseconds
-MAX_CONCURRENT_BATCHES=5  # Concurrent batch operations
-QUERY_CACHE_TTL=300       # Query cache TTL in seconds
-
-# Security
-JWT_SECRET=your-secret-key
-JWT_EXPIRATION=24h
+# Query examples
+SELECT * FROM logs_db.logs ORDER BY timestamp DESC LIMIT 10;
+SELECT level, count() FROM logs_db.logs GROUP BY level;
+SELECT source, count() FROM logs_db.logs WHERE timestamp > now() - INTERVAL 1 HOUR GROUP BY source;
 ```
 
-## 🔧 Performance Tuning
+## Development
 
-### Batch Processing
+### Project Structure
 
-The platform uses batch processing for optimal ingestion performance:
+```
+log-ingestion-platform/
+├── src/
+│   ├── core/                    # Core business logic
+│   │   ├── entities/           # log-entry.js
+│   │   ├── use-cases/          # ingest-log.use-case.js
+│   │   └── ports/              # log-repository.port.js
+│   ├── adapters/
+│   │   ├── http/               # routes.js, controllers.js
+│   │   └── repositories/       # clickhouse.repository.js
+│   ├── config/                  # database.js, di-container.js
+│   └── app.js                   # Express app entry point
+├── docker-compose.yml
+├── init-clickhouse.sql
+├── package.json
+└── README.md
+```
 
-- **Buffer Size**: 10,000 logs (configurable)
-- **Flush Timeout**: 1 second (configurable)
-- **Concurrent Batches**: 5 (configurable)
+### Adding New Features
 
-Adjust `BATCH_SIZE` and `BATCH_TIMEOUT` based on your workload:
+The architecture is designed for easy extension:
+
+1. **New Use Case**: Add to `src/core/use-cases/`
+2. **New Repository**: Implement port in `src/adapters/repositories/`
+3. **New Endpoint**: Add route and controller in `src/adapters/http/`
+4. **Wire Dependencies**: Update `src/config/di-container.js`
+
+### Code Principles
+
+- **Domain-Driven**: Business logic in core, isolated from frameworks
+- **Dependency Inversion**: Core depends on ports (interfaces), adapters implement them
+- **Single Responsibility**: Each class has one clear purpose
+- **Easy Testing**: Mock ports for unit tests, swap adapters for integration tests
+
+## Stopping the Platform
 
 ```bash
-# High throughput (more logs, less frequent flushes)
-BATCH_SIZE=50000
-BATCH_TIMEOUT=5000
+# Stop the Node.js server
+Ctrl+C
 
-# Low latency (smaller batches, frequent flushes)
-BATCH_SIZE=1000
-BATCH_TIMEOUT=500
+# Stop Docker containers
+docker-compose down
+
+# Stop and remove volumes (WARNING: deletes all data)
+docker-compose down -v
 ```
 
-### ClickHouse Optimization
+## Future Enhancements (Not in Phase 1)
 
-The logs table is optimized for time-series queries:
+- [ ] MongoDB integration for dashboards and metadata
+- [ ] Batch processing for high-throughput scenarios
+- [ ] Redis caching layer
+- [ ] Authentication & authorization
+- [ ] Rate limiting
+- [ ] Query API for retrieving logs
+- [ ] Alert system
+- [ ] Schema validation and versioning
+- [ ] Performance monitoring
 
-- **Partitioning**: By day (`toYYYYMMDD(timestamp)`)
-- **Ordering**: By timestamp, service, level
-- **Compression**: LowCardinality for repeated strings
-- **Materialized Views**: Pre-aggregated metrics
+## Troubleshooting
 
-### Caching Strategy
-
-Query results are cached in Redis:
-
-- **Default TTL**: 5 minutes
-- **Cache Key**: Generated from query parameters
-- **Invalidation**: Manual or pattern-based
-
-## 📊 Monitoring
-
-### Metrics Endpoint
+### ClickHouse Connection Failed
 
 ```bash
-GET /metrics
+# Check if ClickHouse is running
+docker ps
+
+# Check ClickHouse logs
+docker logs log-platform-clickhouse
+
+# Verify ClickHouse is accessible
+curl http://localhost:8123/ping
 ```
 
-Returns performance metrics:
+### Port Already in Use
 
-- Request statistics (total, success rate, avg duration)
-- Ingestion statistics (logs processed, batches, rate)
-- Query statistics (total, cache hit rate, avg duration)
-- System metrics (uptime, memory, CPU)
-
-### Performance Monitoring
+Change the `PORT` in your `.env` file or stop the conflicting service:
 
 ```bash
-# View ingestion stats
-GET /api/v1/ingest/stats
+# Find process using port 3000
+lsof -ti:3000
 
-# View system metrics
-GET /metrics
+# Kill the process
+kill -9 <PID>
 ```
 
-## 🧪 Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run unit tests
-npm run test:unit
-
-# Run integration tests
-npm run test:integration
-
-# Run performance benchmarks
-npm run test:performance
-```
-
-## 🐳 Docker Deployment
-
-### Build and run with Docker Compose:
-
-```bash
-cd docker
-docker-compose up -d
-```
-
-Services:
-- API: `http://localhost:3000`
-- ClickHouse: `http://localhost:8123`
-- MongoDB: `mongodb://localhost:27017`
-- Redis: `redis://localhost:6379`
-
-## 🔐 Security
-
-### Authentication
-
-Two authentication methods are supported:
-
-1. **JWT Tokens** - For dashboard and query access
-2. **API Keys** - For log ingestion
-
-Generate API key for a user:
-
-```javascript
-const user = await User.findById(userId);
-const apiKey = user.generateApiKey('My API Key');
-await user.save();
-```
-
-### Best Practices
-
-- Change default admin password immediately
-- Use environment variables for secrets
-- Enable HTTPS in production
-- Implement rate limiting
-- Regular security audits
-
-## 📈 Scaling
-
-### Horizontal Scaling
-
-- Run multiple API instances behind a load balancer
-- Use Redis for session sharing
-- ClickHouse replication for high availability
-
-### Vertical Scaling
-
-- Increase `BATCH_SIZE` for higher throughput
-- Increase `MAX_CONCURRENT_BATCHES` for parallel processing
-- Allocate more memory to ClickHouse and MongoDB
-
-## 🐛 Troubleshooting
-
-### High Memory Usage
-
-```bash
-# Check batch processor stats
-GET /api/v1/ingest/stats
-
-# Reduce batch size
-BATCH_SIZE=5000
-```
-
-### Slow Queries
-
-```bash
-# Clear query cache
-DELETE /api/v1/query/cache
-
-# Check ClickHouse query performance
-# Analyze slow queries in ClickHouse logs
-```
-
-### Database Connection Issues
-
-```bash
-# Check health endpoint
-GET /health
-
-# Verify database connectivity
-docker-compose ps
-```
-
-## 📝 License
+## License
 
 MIT
 
-## 🤝 Contributing
+## Contributing
 
-Contributions welcome! Please read the contributing guidelines before submitting PRs.
-
-## 📧 Support
-
-For issues and questions:
-- GitHub Issues
-- Documentation
-- Community Forum
-
----
-
-**Built with ❤️ for high-performance observability**
+This is a minimal platform designed for evolution. Feel free to extend it based on your needs while maintaining the clean architecture principles.
 
