@@ -1,0 +1,61 @@
+{
+  "name": "log-ingestion-platform",
+  "version": "1.0.0",
+  "description": "High-performance observability platform for log ingestion and analytics",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "test": "jest",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:performance": "node tests/performance/benchmark.js",
+    "lint": "eslint src/**/*.js",
+    "format": "prettier --write 'src/**/*.js'",
+    "setup:clickhouse": "node scripts/setup-clickhouse.js",
+    "setup:mongodb": "node scripts/setup-mongodb.js"
+  },
+  "keywords": [
+    "logs",
+    "observability",
+    "monitoring",
+    "clickhouse",
+    "express",
+    "high-performance"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "compression": "^1.7.4",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "@clickhouse/client": "^0.2.10",
+    "mongodb": "^6.3.0",
+    "mongoose": "^8.0.3",
+    "ioredis": "^5.3.2",
+    "protobufjs": "^7.2.5",
+    "zod": "^3.22.4",
+    "winston": "^3.11.0",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1",
+    "dotenv": "^16.3.1",
+    "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "lz4": "^0.6.5",
+    "zstd-codec": "^0.1.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.56.0",
+    "prettier": "^3.1.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
