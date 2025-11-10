@@ -13,6 +13,15 @@ class LogRepositoryPort {
   }
 
   /**
+   * Save multiple log entries in batch (optimized for performance)
+   * @param {LogEntry[]} logEntries - Array of log entries to save
+   * @returns {Promise<Object>} Result with count of saved logs
+   */
+  async saveBatch(logEntries) {
+    throw new Error('Method not implemented: saveBatch()');
+  }
+
+  /**
    * Optional: Health check for the repository
    * @returns {Promise<boolean>} Connection status
    */

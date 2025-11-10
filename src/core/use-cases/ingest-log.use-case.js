@@ -1,14 +1,29 @@
 const LogEntry = require('../entities/log-entry');
+const IngestLogPort = require('../ports/ingest-log.port');
 
 /**
  * IngestLog Use Case
  * Core business logic for ingesting a log entry
+ * 
+ * Architecture:
+ * - Implements: IngestLogPort (input port) - what the outside world calls
+ * - Depends on: LogRepositoryPort (output port) - what this use case needs
+ * 
+ * This follows the Dependency Inversion Principle and Hexagonal Architecture
  */
-class IngestLogUseCase {
+class IngestLogUseCase extends IngestLogPort {
   constructor(logRepository) {
+    super(); // Call parent constructor
+    
     if (!logRepository) {
       throw new Error('LogRepository is required');
     }
+    
+    // Validate that the repository implements the port interface
+    if (typeof logRepository.save !== 'function') {
+      throw new Error('LogRepository must implement the save() method from LogRepositoryPort');
+    }
+    
     this.logRepository = logRepository;
   }
 

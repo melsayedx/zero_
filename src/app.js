@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const DIContainer = require('./config/di-container');
 const setupRoutes = require('./adapters/http/routes');
+const ResponseHelper = require('./adapters/http/response-helper');
+const HttpStatus = require('./config/http-status');
 
 // Initialize DI Container
 const container = new DIContainer();
@@ -26,8 +28,8 @@ app.use(setupRoutes(controllers));
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({
-    success: false,
+  return ResponseHelper.error(res, {
+    statusCode: HttpStatus.NOT_FOUND,
     message: 'Endpoint not found'
   });
 });
@@ -35,11 +37,11 @@ app.use((req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  res.status(500).json({
-    success: false,
-    message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
+  return ResponseHelper.internalError(
+    res,
+    'Internal server error',
+    process.env.NODE_ENV === 'development' ? err.message : null
+  );
 });
 
 // Server configuration
@@ -56,8 +58,9 @@ Server running on: http://localhost:${PORT}
 Environment: ${process.env.NODE_ENV || 'development'}
 
 Available endpoints:
-  GET  /health           - Health check
-  POST /api/logs         - Ingest log entries
+  GET  /health             - Health check
+  POST /api/logs           - Ingest single log entry
+  POST /api/logs/batch     - Ingest multiple logs (high-throughput)
 
 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}
 Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}

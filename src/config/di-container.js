@@ -1,7 +1,8 @@
 const { createClickHouseClient } = require('./database');
 const ClickHouseRepository = require('../adapters/repositories/clickhouse.repository');
 const IngestLogUseCase = require('../core/use-cases/ingest-log.use-case');
-const { IngestLogController, HealthCheckController } = require('../adapters/http/controllers');
+const IngestLogsBatchUseCase = require('../core/use-cases/ingest-logs-batch.use-case');
+const { IngestLogController, IngestLogsBatchController, HealthCheckController } = require('../adapters/http/controllers');
 
 /**
  * Simple Dependency Injection Container
@@ -29,9 +30,17 @@ class DIContainer {
       this.instances.logRepository
     );
 
+    this.instances.ingestLogsBatchUseCase = new IngestLogsBatchUseCase(
+      this.instances.logRepository
+    );
+
     // Controllers
     this.instances.ingestLogController = new IngestLogController(
       this.instances.ingestLogUseCase
+    );
+
+    this.instances.ingestLogsBatchController = new IngestLogsBatchController(
+      this.instances.ingestLogsBatchUseCase
     );
 
     this.instances.healthCheckController = new HealthCheckController(
@@ -58,6 +67,7 @@ class DIContainer {
   getControllers() {
     return {
       ingestLogController: this.get('ingestLogController'),
+      ingestLogsBatchController: this.get('ingestLogsBatchController'),
       healthCheckController: this.get('healthCheckController')
     };
   }

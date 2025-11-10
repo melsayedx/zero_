@@ -3,10 +3,15 @@ const { randomUUID } = require('crypto');
 /**
  * LogEntry Domain Entity
  * Represents a log entry with validation
+ * Now supports multi-application environments via app_id
  */
 class LogEntry {
-  constructor({ id, timestamp, level, message, source, metadata = {}, trace_id = null, user_id = null }) {
+  constructor({ id, app_id, timestamp, level, message, source, metadata = {}, trace_id = null, user_id = null }) {
     // Validate required fields
+    if (!app_id || typeof app_id !== 'string') {
+      throw new Error('app_id is required and must be a string');
+    }
+
     if (!message || typeof message !== 'string') {
       throw new Error('Message is required and must be a string');
     }
@@ -26,6 +31,7 @@ class LogEntry {
 
     // Assign properties
     this.id = id || randomUUID();
+    this.app_id = app_id;
     this.timestamp = timestamp ? new Date(timestamp) : new Date();
     this.level = level.toLowerCase();
     this.message = message;
@@ -51,6 +57,7 @@ class LogEntry {
   toObject() {
     return {
       id: this.id,
+      app_id: this.app_id,
       timestamp: this.timestamp,
       level: this.level,
       message: this.message,
