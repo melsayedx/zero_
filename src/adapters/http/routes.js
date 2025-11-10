@@ -14,6 +14,9 @@ function setupRoutes(controllers) {
   // Log ingestion endpoints
   router.post('/api/logs', (req, res) => controllers.ingestLogController.handle(req, res));
   router.post('/api/logs/batch', (req, res) => controllers.ingestLogsBatchController.handle(req, res));
+  
+  // Log retrieval endpoints
+  router.get('/api/logs/:app_id', (req, res) => controllers.getLogsByAppIdController.handle(req, res));
 
   return router;
 }

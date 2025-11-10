@@ -5,7 +5,11 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
-    "dev": "nodemon src/app.js"
+    "dev": "nodemon src/app.js",
+    "cluster": "node cluster.js",
+    "cluster:dev": "nodemon cluster.js",
+    "cluster:prod": "NODE_ENV=production node cluster.js",
+    "monitor": "node cluster-monitor.js"
   },
   "keywords": ["logs", "ingestion", "clickhouse"],
   "author": "",
@@ -13,7 +17,9 @@
   "dependencies": {
     "express": "^4.18.2",
     "dotenv": "^16.3.1",
-    "@clickhouse/client": "^0.2.10"
+    "@clickhouse/client": "^0.2.10",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

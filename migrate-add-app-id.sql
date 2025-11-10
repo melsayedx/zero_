@@ -13,22 +13,32 @@ RENAME TABLE logs TO logs_old;
 
 -- Step 2: Create new table with app_id
 CREATE TABLE logs (
-    id String,
-    app_id LowCardinality(String),
-    timestamp DateTime64(3),
-    level LowCardinality(String),
-    message String,
-    source LowCardinality(String),
-    metadata String,
-    trace_id String,
-    user_id String,
-    created_at DateTime DEFAULT now()
+    id String CODEC(ZSTD(19)),
+    app_id LowCardinality(String) CODEC(ZSTD(19)),
+    timestamp DateTime64(3) CODEC(Delta, ZSTD(19)),
+    level LowCardinality(String) CODEC(ZSTD(19)),
+    message String CODEC(ZSTD(19)),
+    source LowCardinality(String) CODEC(ZSTD(19)),
+    metadata String CODEC(ZSTD(19)),
+    trace_id String CODEC(ZSTD(19)),
+    user_id String CODEC(ZSTD(19)),
+    created_at DateTime CODEC(ZSTD(19)) DEFAULT now()
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMM(timestamp), app_id)
 ORDER BY (app_id, timestamp, level, source)
 TTL timestamp + INTERVAL 90 DAY
-SETTINGS index_granularity = 8192;
-
+CODEC(ZSTD(19)),
+SETTINGS index_granularity = 8192,
+codec_config = {
+    'delta': {
+        'min_level': 19,
+        'max_level': 19
+    },
+    'zstd': {
+        'min_level': 19,
+        'max_level': 19
+    }
+};
 -- Step 3: Migrate data from old table (assign default app_id)
 INSERT INTO logs 
 SELECT 

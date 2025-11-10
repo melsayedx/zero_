@@ -33,6 +33,7 @@ class ClickHouseRepository extends LogRepositoryPort {
         level: logData.level,
         message: logData.message,
         source: logData.source,
+        environment: logData.environment,
         metadata: JSON.stringify(logData.metadata),
         trace_id: logData.trace_id || '',
         user_id: logData.user_id || ''
@@ -71,6 +72,7 @@ class ClickHouseRepository extends LogRepositoryPort {
           level: logData.level,
           message: logData.message,
           source: logData.source,
+          environment: logData.environment,
           metadata: JSON.stringify(logData.metadata),
           trace_id: logData.trace_id || '',
           user_id: logData.user_id || ''
@@ -90,6 +92,80 @@ class ClickHouseRepository extends LogRepositoryPort {
       };
     } catch (error) {
       throw new Error(`Failed to batch save logs to ClickHouse: ${error.message}`);
+    }
+  }
+
+  /**
+   * Find logs by app_id
+   * @param {string} appId - The application ID to filter by
+   * @param {number} limit - Maximum number of logs to return (default: 1000)
+   * @returns {Promise<Array>} Array of log entries
+   */
+  async findByAppId(appId, limit = 1000) {
+    try {
+      if (!appId || typeof appId !== 'string') {
+        throw new Error('app_id is required and must be a string');
+      }
+
+      if (limit < 1 || limit > 10000) {
+        throw new Error('Limit must be between 1 and 10000');
+      }
+
+      // Escape app_id to prevent SQL injection
+      // ClickHouse uses single quotes for string literals
+      const escapedAppId = appId.replace(/'/g, "''");
+      const safeLimit = parseInt(limit, 10);
+
+      const parseStartTime = performance.now();
+
+      const query = `
+        SELECT 
+          id,
+          app_id,
+          timestamp,
+          observed_timestamp,
+          level,
+          message,
+          source,
+          environment,
+          metadata,
+          trace_id,
+          user_id
+        FROM ${this.tableName}
+        WHERE app_id = '${escapedAppId}'
+        ORDER BY timestamp DESC
+        LIMIT ${safeLimit}
+      `;
+
+      const result = await this.client.query({
+        query: query,
+        format: 'JSONEachRow'
+      });
+
+      // Measure parsing performance
+      const parseEndTime = performance.now();
+      const parseDuration = parseEndTime - parseStartTime;
+      
+      
+      // Parse the result and convert metadata from JSON string back to object
+      const logs = [];
+      for await (const row of result.stream()) {
+        logs.push({
+          ...row,
+          metadata: row.metadata ? JSON.parse(row.metadata) : {}
+        });
+      }
+      
+      
+      if (logs.length > 0) {
+        console.log(`[ClickHouse] Parsing ${logs.length} rows took ${parseDuration.toFixed(2)}ms (${(parseDuration / logs.length).toFixed(3)}ms per row)`);
+      } else {
+        console.log(`[ClickHouse] Parsing completed in ${parseDuration.toFixed(2)}ms (0 rows)`);
+      }
+
+      return logs;
+    } catch (error) {
+      throw new Error(`Failed to find logs by app_id: ${error.message}`);
     }
   }
 

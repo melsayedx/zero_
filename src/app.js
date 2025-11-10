@@ -4,6 +4,9 @@ const DIContainer = require('./config/di-container');
 const setupRoutes = require('./adapters/http/routes');
 const ResponseHelper = require('./adapters/http/response-helper');
 const HttpStatus = require('./config/http-status');
+const { metricsMiddleware, getMetrics, resetMetrics } = require('./middleware/metrics');
+const compression = require('compression');
+const helmet = require('helmet');
 
 // Initialize DI Container
 const container = new DIContainer();
@@ -13,13 +16,37 @@ container.initialize();
 const app = express();
 
 // Middleware
+app.use(helmet());
+
+// Enable HTTP compression (gzip/brotli)
+app.use(compression({
+  level: 6,              // Compression level (1-9)
+  threshold: 1024,       // Only compress responses > 1KB
+  filter: (req, res) => {
+      // Don't compress if client doesn't support it
+      if (req.headers['x-no-compression']) {
+          return false;
+      }
+      return compression.filter(req, res);
+  }
+}));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Metrics tracking middleware
+app.use(metricsMiddleware);
 
 // Request logging middleware (simple)
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
+});
+
+// Metrics endpoint (before other routes to avoid tracking it)
+app.get('/metrics', (req, res) => {
+  const metrics = getMetrics();
+  return res.status(HttpStatus.OK).json(metrics);
 });
 
 // Setup routes with controllers from DI container
@@ -59,8 +86,10 @@ Environment: ${process.env.NODE_ENV || 'development'}
 
 Available endpoints:
   GET  /health             - Health check
+  GET  /metrics            - Application metrics (req/sec, uptime, etc)
   POST /api/logs           - Ingest single log entry
   POST /api/logs/batch     - Ingest multiple logs (high-throughput)
+  GET  /api/logs/:app_id   - Retrieve logs for a specific app (default: 1000 rows)
 
 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}
 Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}

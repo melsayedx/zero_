@@ -129,9 +129,53 @@ class IngestLogsBatchController {
   }
 }
 
+/**
+ * Controller for retrieving logs by app_id
+ * 
+ * This is a PRIMARY ADAPTER that depends on the GetLogsByAppIdUseCase
+ */
+class GetLogsByAppIdController {
+  constructor(getLogsByAppIdUseCase) {
+    if (!getLogsByAppIdUseCase) {
+      throw new Error('GetLogsByAppIdUseCase is required');
+    }
+    
+    // Validate that the use case implements the execute method
+    if (typeof getLogsByAppIdUseCase.execute !== 'function') {
+      throw new Error('GetLogsByAppIdUseCase must implement the execute() method');
+    }
+    
+    this.getLogsByAppIdUseCase = getLogsByAppIdUseCase;
+  }
+
+  /**
+   * Handle GET /api/logs/:app_id request
+   * @param {Request} req - Express request
+   * @param {Response} res - Express response
+   */
+  async handle(req, res) {
+    try {
+      const { app_id } = req.params;
+      const limit = parseInt(req.query.limit) || 10000;
+
+      // Execute use case
+      const result = await this.getLogsByAppIdUseCase.execute(app_id, limit);
+      
+      if (result.success) {
+        return ResponseHelper.success(res, { message: result.message, data: result.data });
+      } else {
+        return ResponseHelper.badRequest(res, { message: result.message, error: result.error });
+      }
+    } catch (error) {
+      return ResponseHelper.internalError(res, { message: 'Internal server error', error: error.message });
+    }
+  }
+}
+
 module.exports = {
   IngestLogController,
   IngestLogsBatchController,
-  HealthCheckController
+  HealthCheckController,
+  GetLogsByAppIdController
 };
 

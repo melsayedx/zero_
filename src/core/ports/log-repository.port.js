@@ -22,6 +22,16 @@ class LogRepositoryPort {
   }
 
   /**
+   * Find logs by app_id
+   * @param {string} appId - The application ID to filter by
+   * @param {number} limit - Maximum number of logs to return (default: 1000)
+   * @returns {Promise<Array>} Array of log entries
+   */
+  async findByAppId(appId, limit = 1000) {
+    throw new Error('Method not implemented: findByAppId()');
+  }
+
+  /**
    * Optional: Health check for the repository
    * @returns {Promise<boolean>} Connection status
    */
