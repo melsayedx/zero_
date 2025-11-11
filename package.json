@@ -11,18 +11,23 @@
     "cluster:prod": "NODE_ENV=production node cluster.js",
     "monitor": "node cluster-monitor.js"
   },
-  "keywords": ["logs", "ingestion", "clickhouse"],
+  "keywords": [
+    "logs",
+    "ingestion",
+    "clickhouse"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
-    "dotenv": "^16.3.1",
     "@clickhouse/client": "^0.2.10",
-    "helmet": "^7.1.0",
-    "compression": "^1.7.4"
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "compression": "^1.7.4",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
   }
 }
-

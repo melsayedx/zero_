@@ -7,6 +7,7 @@ const HttpStatus = {
   // Success responses
   OK: 200,
   CREATED: 201,
+  ACCEPTED: 202,
   
   // Client error responses
   BAD_REQUEST: 400,
