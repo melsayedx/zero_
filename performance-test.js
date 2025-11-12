@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
+// Load environment variables from .env file
+require('dotenv').config();
+
 /**
  * Performance Test Script
  * Tests log ingestion with 300k logs from 4 different applications in parallel
  */
 
-require('dotenv').config();
 const { randomUUID } = require('crypto');
 
 // Configuration
@@ -107,8 +109,8 @@ function generateLogEntry(appId) {
     level: level,
     message: messages[Math.floor(Math.random() * messages.length)],
     source: sources[Math.floor(Math.random() * sources.length)],
+    environment: 'production',
     metadata: {
-      environment: 'production',
       region: ['us-east-1', 'eu-west-1', 'ap-southeast-1'][Math.floor(Math.random() * 3)],
       request_id: randomUUID(),
       response_time_ms: Math.floor(Math.random() * 1000)
@@ -122,13 +124,14 @@ function generateLogEntry(appId) {
  * Send logs in batch
  */
 async function sendBatch(logs, batchNumber, appId) {
+  
   try {
-    const response = await fetch(`${TEST_CONFIG.serverUrl}/api/logs/batch`, {
+    const response = await fetch(`${TEST_CONFIG.serverUrl}/api/logs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ logs })
+      body: JSON.stringify(logs)
     });
 
     if (!response.ok) {

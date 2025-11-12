@@ -20,15 +20,11 @@ class LogEntry {
   // Fast UUID validation (simplified for performance)
   static UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  // Fast ISO datetime validation (simplified for performance)
-  static ISO_DATETIME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
-
   constructor(data, options = {}) {
     const { skipValidation = false, lightValidation = false } = options;
 
     // ===== NORMALIZATION =====
     const id = data.id || randomUUID();
-    const timestamp = data.timestamp || new Date().toISOString();
     const level = data.level?.toUpperCase();
     const metadata = data.metadata ?? {};
     const environment = data.environment || 'prod';
@@ -37,6 +33,9 @@ class LogEntry {
     const app_id = data.app_id;
     const message = data.message;
     const source = data.source;
+    
+    // Timestamp - only set when reading from database (not for insertion)
+    const timestamp = data.timestamp || null;
 
     // ===== SKIP VALIDATION FOR MAXIMUM PERFORMANCE =====
     if (skipValidation) {
@@ -83,23 +82,6 @@ class LogEntry {
     }
     if (app_id.length > LogEntry.CONSTRAINTS.app_id.maxLength) {
       throw new Error(`app_id must not exceed ${LogEntry.CONSTRAINTS.app_id.maxLength} characters`);
-    }
-
-    // ===== TIMESTAMP VALIDATION =====
-    if (typeof timestamp !== 'string') {
-      throw new Error('timestamp must be a string');
-    }
-    if (!LogEntry.ISO_DATETIME_REGEX.test(timestamp)) {
-      throw new Error('timestamp must be in ISO 8601 format');
-    }
-    const timestampDate = new Date(timestamp);
-    if (isNaN(timestampDate.getTime())) {
-      throw new Error('timestamp must be a valid date');
-    }
-    // Prevent far-future timestamps (5 min tolerance)
-    const fiveMinutesInFuture = Date.now() + (5 * 60 * 1000);
-    if (timestampDate.getTime() > fiveMinutesInFuture) {
-      throw new Error('timestamp cannot be more than 5 minutes in the future');
     }
 
     // ===== LEVEL VALIDATION =====
@@ -165,7 +147,6 @@ class LogEntry {
     // ===== ASSIGNMENT =====
     this.id = id;
     this.app_id = app_id;
-    this.timestamp = timestamp;
     this.level = level;
     this.message = message;
     this.source = source;
@@ -179,7 +160,7 @@ class LogEntry {
    * Light validation for high-throughput scenarios
    * @private
    */
-  _lightValidate({ id, app_id, timestamp, level, message, source, environment, metadata, trace_id, user_id }) {
+  _lightValidate({ id, app_id, level, message, source, environment, metadata, trace_id, user_id, timestamp }) {
     // Fast required field checks
     if (!app_id || !message || !level || !source) {
       throw new Error('Missing required fields: app_id, message, level, source');
@@ -203,7 +184,7 @@ class LogEntry {
     // Assign validated values
     this.id = id;
     this.app_id = app_id;
-    this.timestamp = timestamp;
+    this.timestamp = timestamp; // Only populated when reading from DB
     this.level = level;
     this.message = message;
     this.source = source;
@@ -232,31 +213,39 @@ class LogEntry {
     return new LogEntry(data, { skipValidation: true });
   }
 
-  // Convert to plain object for storage
+  // Convert to plain object for storage (insertion only - no timestamp)
   toObject() {
     return {
       id: this.id,
       app_id: this.app_id,
-      timestamp: this.timestamp,
       level: this.level,
       message: this.message,
       source: this.source,
       environment: this.environment,
-      metadata: this.metadata,
-      trace_id: this.trace_id,
-      user_id: this.user_id
+      metadata: JSON.stringify(this.metadata), // ClickHouse expects JSON string
+      trace_id: this.trace_id || '', // Convert null to empty string for ClickHouse
+      user_id: this.user_id || ''    // Convert null to empty string for ClickHouse
+      // timestamp omitted - ClickHouse generates it with DEFAULT now()
     };
   }
 
-  // Clone with optional overrides
+  // Clone with optional overrides (preserves timestamp if reading from DB)
   clone(overrides = {}) {
     return new LogEntry({
-      ...this.toObject(),
-      ...overrides,
+      id: this.id,
+      app_id: this.app_id,
+      timestamp: this.timestamp, // Preserved when cloning DB entities
+      level: this.level,
+      message: this.message,
+      source: this.source,
+      environment: this.environment,
       metadata: {
         ...this.metadata,
         ...(overrides.metadata || {})
-      }
+      },
+      trace_id: this.trace_id,
+      user_id: this.user_id,
+      ...overrides
     });
   }
 }

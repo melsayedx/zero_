@@ -16,8 +16,8 @@ class GetLogsByAppIdUseCase {
     }
     
     // Validate that the repository implements the port interface
-    if (typeof logRepository.findByAppId !== 'function') {
-      throw new Error('LogRepository must implement the findByAppId() method from LogRepositoryPort');
+    if (typeof logRepository.findBy !== 'function') {
+      throw new Error('LogRepository must implement the findBy() method from LogRepositoryPort');
     }
     
     this.logRepository = logRepository;
@@ -50,16 +50,22 @@ class GetLogsByAppIdUseCase {
       }
 
       // Query logs via repository port
-      const logs = await this.logRepository.findByAppId(appId, limit);
+      const result = await this.logRepository.findBy({
+        filter: { app_id: appId },
+        limit: limit
+      });
 
       return {
         success: true,
         data: {
           app_id: appId,
-          count: logs.length,
-          logs: logs
+          count: result.logs.length,
+          logs: result.logs,
+          hasMore: result.hasMore,
+          nextCursor: result.nextCursor,
+          queryTime: result.queryTime
         },
-        message: `Retrieved ${logs.length} log entries for app_id: ${appId}`
+        message: `Retrieved ${result.logs.length} log entries for app_id: ${appId}`
       };
     } catch (error) {
       // Return business-friendly error

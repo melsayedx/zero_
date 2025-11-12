@@ -9,14 +9,13 @@ function setupRoutes(controllers) {
   const router = express.Router();
 
   // Health check endpoint
-  router.get('/health', (req, res) => controllers.healthCheckController.handle(req, res));
+  router.get('/health', async (req, res) => await controllers.healthCheckController.handle(req, res));
 
   // Log ingestion endpoints
-  router.post('/api/logs', (req, res) => controllers.ingestLogController.handle(req, res));
-  router.post('/api/logs/batch', (req, res) => controllers.ingestLogsBatchController.handle(req, res));
+  router.post('/api/logs', async (req, res) => await controllers.ingestLogController.handle(req, res));
   
   // Log retrieval endpoints
-  router.get('/api/logs/:app_id', (req, res) => controllers.getLogsByAppIdController.handle(req, res));
+  router.get('/api/logs/:app_id', async (req, res) => await controllers.getLogsByAppIdController.handle(req, res));
 
   return router;
 }

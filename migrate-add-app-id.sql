@@ -26,7 +26,6 @@ CREATE TABLE logs (
     
     -- Timestamps with optimal compression
     timestamp DateTime64(3) CODEC(Delta, ZSTD(19)),
-    observed_timestamp DateTime64(3) DEFAULT now() CODEC(Delta, ZSTD(19)),
     
     -- Log level as Enum (1 byte per entry)
     level Enum8(
@@ -103,18 +102,27 @@ SETTINGS
     max_compress_block_size = 1048576;    -- 1 MB compression blocks
 
 -- Step 3: Migrate data from old table (assign default app_id)
-INSERT INTO logs 
+INSERT INTO logs (
+    app_id,
+    timestamp,
+    level,
+    message,
+    source,
+    environment,
+    metadata,
+    trace_id,
+    user_id
+)
 SELECT 
-    id,
     'legacy-app' as app_id,  -- Default app_id for existing logs
     timestamp,
     level,
     message,
     source,
+    environment,
     metadata,
     trace_id,
-    user_id,
-    created_at
+    user_id
 FROM logs_old;
 
 -- Step 4: Verify migration

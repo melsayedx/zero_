@@ -25,8 +25,7 @@ CREATE TABLE logs (
     app_id LowCardinality(String) CODEC(ZSTD(19)),
     
     -- Timestamps with optimal compression
-    timestamp DateTime64(3) CODEC(Delta, ZSTD(19)),
-    observed_timestamp DateTime64(3) DEFAULT now() CODEC(Delta, ZSTD(19)),
+    timestamp DateTime64(3) default now() CODEC(Delta, ZSTD(19)),
     
     -- Log level as Enum (1 byte per entry)
     level Enum8(
@@ -102,21 +101,20 @@ SETTINGS
     max_bytes_to_merge_at_min_space_in_pool = 134217728;   -- 128MB min merge memory
 
 -- Step 3: Migrate data from old table (assign default app_id)
-INSERT INTO logs(app_id,
+INSERT INTO logs(
+    app_id,
     timestamp,
-    observed_timestamp,
     level,
     message,
     source,
     environment,
     metadata,
     trace_id,
-    user_id) 
+    user_id
+) 
 SELECT 
-    
     app_id,
     timestamp,
-    observed_timestamp,
     level,
     message,
     source,

@@ -3,8 +3,6 @@
  * Handle HTTP requests and responses
  */
 
-const ResponseHelper = require('./response-helper');
-
 /**
  * Controller for ingesting log entries
  * 
@@ -36,13 +34,13 @@ class IngestLogController {
       // Execute use case
       const result = await this.ingestLogUseCase.execute(logData);
 
-      if (result.success) {
-        return ResponseHelper.created(res, result.message, result.data);
+      if (result.isFullSuccess() || result.isPartialSuccess()) {
+        return res.status(202).json({success: true, message: 'Log data accepted'});
       } else {
-        return ResponseHelper.badRequest(res, result.message, result.error);
+        return res.status(400).json({success: false, message: 'Invalid log data'});
       }
     } catch (error) {
-      return ResponseHelper.internalError(res, 'Internal server error', error.message);
+      return res.status(500).json({success: false, message: 'Internal server error'});
     }
   }
 }
@@ -56,75 +54,28 @@ class HealthCheckController {
   }
 
   async handle(req, res) {
-    const timestamp = new Date().toISOString();
-    
     try {
       const isHealthy = await this.logRepository.healthCheck();  
-      
-      if (isHealthy) {
-        return ResponseHelper.success(res, {
+
+      if (isHealthy.healthy) {
+        return res.status(200).json({
+          success: true,
           message: 'Service is healthy',
-          data: { timestamp }
+          data: { timestamp: isHealthy.timestamp }
         });
       } else {
-        return ResponseHelper.serviceUnavailable(
-          res,
-          'Service is unhealthy - database connection failed',
-          { timestamp }
-        );
+        return res.status(503).json({
+          success: false,
+          message: 'Service is unhealthy - database connection failed',
+          error: { timestamp: isHealthy.timestamp  }
+        });
       }
     } catch (error) {
-      return ResponseHelper.serviceUnavailable(
-        res,
-        'Service is unhealthy',
-        { message: error.message , timestamp}
-      );
-    }
-  }
-}
-
-/**
- * Controller for batch ingesting log entries
- * 
- * This is a PRIMARY ADAPTER for high-throughput log ingestion
- */
-class IngestLogsBatchController {
-  constructor(ingestLogsBatchUseCase) {
-    if (!ingestLogsBatchUseCase) {
-      throw new Error('IngestLogsBatchUseCase is required');
-    }
-    
-    // Validate that the use case implements the input port interface
-    if (typeof ingestLogsBatchUseCase.execute !== 'function') {
-      throw new Error('IngestLogsBatchUseCase must implement the execute() method');
-    }
-    
-    this.ingestLogsBatchUseCase = ingestLogsBatchUseCase;
-  }
-
-  /**
-   * Handle POST /api/logs/batch request
-   * @param {Request} req - Express request
-   * @param {Response} res - Express response
-   */
-  async handle(req, res) {
-    try {
-      const { logs } = req.body;
-
-      if (!logs) {
-        return ResponseHelper.badRequest(res, 'Missing "logs" field in request body');
-      }
-
-      // Execute use case
-      const result = await this.ingestLogsBatchUseCase.execute(logs);
-
-      if (result.success) {
-        return ResponseHelper.created(res, result.message, result.data);
-      } else {
-        return ResponseHelper.badRequest(res, result.message, result.error);
-      }
-    } catch (error) {
-      return ResponseHelper.internalError(res, 'Internal server error', error.message);
+      return res.status(503).json({
+        success: false,
+        message: 'Service is unhealthy',
+        error: { message: error.message, timestamp: isHealthy.timestamp  }
+      });
     }
   }
 }
@@ -156,25 +107,36 @@ class GetLogsByAppIdController {
   async handle(req, res) {
     try {
       const { app_id } = req.params;
-      const limit = parseInt(req.query.limit) || 10000;
+      const limit = parseInt(req.query.limit) || 1000;  // Default to 100 instead of 10000
 
       // Execute use case
       const result = await this.getLogsByAppIdUseCase.execute(app_id, limit);
       
       if (result.success) {
-        return ResponseHelper.success(res, { message: result.message, data: result.data });
+        return res.status(200).json({
+          success: true,
+          message: result.message,
+          data: result.data
+        });
       } else {
-        return ResponseHelper.badRequest(res, { message: result.message, error: result.error });
+        return res.status(400).json({
+          success: false,
+          message: result.message,
+          error: result.error
+        });
       }
     } catch (error) {
-      return ResponseHelper.internalError(res, { message: 'Internal server error', error: error.message });
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message
+      });
     }
   }
 }
 
 module.exports = {
   IngestLogController,
-  IngestLogsBatchController,
   HealthCheckController,
   GetLogsByAppIdController
 };

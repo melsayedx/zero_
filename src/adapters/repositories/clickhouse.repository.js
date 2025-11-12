@@ -8,7 +8,7 @@ class ClickHouseRepository extends LogRepositoryPort {
   constructor(clickhouseClient) {
     super();
     this.client = clickhouseClient;
-    this.tableName = 'logs';
+    this.tableName = process.env.CLICKHOUSE_TABLE || 'logs';
 
     // Simplified filter configuration for better performance
     this.FILTER_CONFIG = {
@@ -26,6 +26,8 @@ class ClickHouseRepository extends LogRepositoryPort {
 
   /**
    * Save log entries to ClickHouse
+   * Note: Using async inserts (wait_for_async_insert: 0) for maximum throughput.
+   * Data is queued and written asynchronously by ClickHouse.
    * @param {LogEntry[]} logEntries - The log entry array to save
    */
   async save(logEntries) {
@@ -34,11 +36,23 @@ class ClickHouseRepository extends LogRepositoryPort {
     }
 
     const values = logEntries.map(logEntry => logEntry.toObject());
-    await this.client.insert({
-      table: this.tableName,
-      values: values,
-      format: 'JSONEachRow'
-    });
+    
+    try {
+      // Fire-and-forget: ClickHouse queues the data for async insertion
+      await this.client.insert({
+        table: this.tableName,
+        values: values,
+        format: 'JSONEachRow'
+      });
+    } catch (error) {
+      console.error('ClickHouse insert error:', {
+        error: error.message,
+        table: this.tableName,
+        recordCount: values.length,
+        sampleRecord: values[0] // Log first record for debugging
+      });
+      throw error;
+    }
   }
 
   /**

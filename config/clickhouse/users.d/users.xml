@@ -1,0 +1,963 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- 
+        ClickHouse User Configuration for High-Throughput Log Ingestion
+        Optimized for 100k requests/second per user
+        
+        This file defines:
+        - Profiles: Collections of settings that control query behavior
+        - Users: Authentication and authorization
+        - Quotas: Resource usage limits per user
+        
+        These settings CAN be overridden by:
+        - Client settings in database.js (via clickhouse_settings)
+        - Per-query settings in application code
+    -->
+    
+    <profiles>
+        <!-- 
+            PROFILE: default
+            High-throughput write-optimized profile for log ingestion
+            Designed to handle 100k requests/second with minimal latency
+        -->
+        <default>
+            <!-- ================================================ -->
+            <!-- ASYNC INSERT SETTINGS (Critical for 100k/sec)    -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                async_insert: Enable asynchronous insert mode
+                - 1 = Enabled (batches multiple inserts automatically)
+                - 0 = Disabled (each insert waits for disk write)
+                
+                HOW IT WORKS:
+                - Client sends INSERT → Server responds immediately → Data batched in memory → Flushed to disk later
+                - Multiple inserts are accumulated and written as one batch
+                
+                CRITICAL FOR HIGH THROUGHPUT:
+                - Reduces disk I/O by 100-1000x
+                - Turns 100k individual inserts into ~100 batch writes
+            -->
+            <async_insert>1</async_insert>
+            
+            <!-- 
+                wait_for_async_insert: Wait for data to be written to disk before responding
+                - 0 = Don't wait (fastest, eventual consistency)
+                - 1 = Wait for disk write (slower, immediate consistency)
+                
+                WHY 0 FOR 100K/SEC:
+                - Client gets instant response (~1ms)
+                - Data written to disk within 200-1000ms (see timeouts below)
+                - Trade-off: Small risk of data loss if server crashes before flush
+            -->
+            <wait_for_async_insert>0</wait_for_async_insert>
+            
+            <!-- 
+                async_insert_deduplicate: Deduplicate data in async insert buffer
+                - 0 = No deduplication (faster)
+                - 1 = Remove duplicates (slower, uses more memory)
+                
+                WHY DISABLED:
+                - Deduplication adds CPU overhead
+                - For logs, duplicates are acceptable (or handled at application level)
+                - 30% performance improvement when disabled
+            -->
+            <async_insert_deduplicate>0</async_insert_deduplicate>
+            
+            <!-- 
+                async_insert_busy_timeout_ms: Minimum time to accumulate data before flushing (milliseconds)
+                - 200 = Wait at least 200ms before flushing
+                
+                HOW IT WORKS:
+                - Server collects inserts for 200ms minimum
+                - Then flushes to disk (or when other conditions met)
+                
+                TUNING:
+                - Lower (50-100ms) = Lower latency, more disk writes
+                - Higher (500-1000ms) = Higher latency, fewer disk writes
+                - 200ms = Good balance for 100k/sec
+            -->
+            <async_insert_busy_timeout_ms>200</async_insert_busy_timeout_ms>
+            
+            <!-- 
+                async_insert_busy_timeout_max_ms: Maximum time to hold data before forcing flush (milliseconds)
+                - 1000 = Force flush after 1 second maximum
+                
+                WHY THIS MATTERS:
+                - Guarantees data is written within 1 second
+                - Prevents indefinite buffering if insert rate is low
+                - Balance between throughput and data visibility
+            -->
+            <async_insert_busy_timeout_max_ms>1000</async_insert_busy_timeout_max_ms>
+            
+            <!-- 
+                async_insert_max_data_size: Maximum bytes to accumulate before flushing
+                - 10485760 = 10MB buffer
+                
+                TRIGGER CONDITIONS (whichever comes first):
+                1. Buffer reaches 10MB → Flush immediately
+                2. 1 second passes → Flush (from max_timeout above)
+                
+                MEMORY IMPACT:
+                - 10MB per async insert thread (16 threads = 160MB total)
+                - Larger buffer = fewer disk writes but more memory
+            -->
+            <async_insert_max_data_size>10485760</async_insert_max_data_size>
+            
+            <!-- 
+                async_insert_threads: Number of threads processing async inserts
+                - 16 = 16 parallel workers for flushing batched data
+                
+                PERFORMANCE IMPACT:
+                - More threads = higher throughput
+                - Each thread can flush one batch simultaneously
+                - At 100k/sec, 16 threads handle ~6,250 req/sec each
+                
+                RESOURCE USAGE:
+                - Each thread uses one CPU core during flush
+                - 16 threads suitable for 8+ core systems
+            -->
+            <async_insert_threads>12</async_insert_threads>
+            
+            <!-- ================================================ -->
+            <!-- WRITE PERFORMANCE SETTINGS                       -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                max_insert_threads: Threads used for INSERT query execution
+                - 8 = Use up to 8 threads per INSERT
+                
+                WHEN USED:
+                - After async batching, data is written to disk
+                - 8 threads parallelize the write operation
+                - Faster disk writes = shorter flush time
+            -->
+            <max_insert_threads>8</max_insert_threads>
+            
+            <!-- 
+                max_insert_block_size: Maximum rows in a single data block
+                - 1048576 = 1 million rows per block
+                
+                WHAT IT DOES:
+                - Data is split into blocks for storage
+                - Larger blocks = better compression, fewer files
+                - 1M rows is optimal for most log data
+            -->
+            <max_insert_block_size>1048576</max_insert_block_size>
+            
+            <!-- 
+                min_insert_block_size_rows: Minimum rows before writing a block
+                - 262144 = 256K rows minimum
+                
+                WHY IT MATTERS:
+                - Prevents creating many tiny blocks (bad for performance)
+                - Will accumulate at least 256K rows before disk write
+                - Smaller than max (1M) for flexibility
+            -->
+            <min_insert_block_size_rows>262144</min_insert_block_size_rows>
+            
+            <!-- 
+                min_insert_block_size_bytes: Minimum bytes before writing a block
+                - 268435456 = 256MB minimum
+                
+                DUAL THRESHOLD:
+                - Block is written when EITHER row count OR byte size is reached
+                - Handles variable-size log entries
+                - Large messages trigger flush even with fewer rows
+            -->
+            <min_insert_block_size_bytes>268435456</min_insert_block_size_bytes>
+            
+            <!-- ================================================ -->
+            <!-- MEMORY & PROCESSING SETTINGS                     -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                max_memory_usage: Maximum RAM per query (bytes)
+                - 10737418240 = 10GB per query
+                
+                PROTECTS AGAINST:
+                - Out-of-memory errors
+                - One query consuming all RAM
+                
+                FOR INSERTS:
+                - Batched inserts need memory for buffering
+                - 10GB allows large batches
+                
+                FOR QUERIES:
+                - Complex aggregations use memory
+                - 10GB handles most analytics queries
+            -->
+            <max_memory_usage>10737418240</max_memory_usage>
+            
+            <!-- 
+                max_threads: Maximum threads per query
+                - 8 = Use up to 8 CPU cores per query
+                
+                BALANCES:
+                - More threads = faster individual queries
+                - Fewer threads = more concurrent queries possible
+                - 8 threads good for 16+ core systems
+            -->
+            <max_threads>8</max_threads>
+            
+            <!-- 
+                max_memory_usage_for_user: Total memory limit for all user's queries
+                - 0 = Unlimited (no per-user limit)
+                
+                WHEN TO SET:
+                - Multi-tenant systems: Limit per tenant
+                - Production: Set to prevent one user from using all RAM
+                - Single-app: 0 is fine (controlled by max_memory_usage instead)
+            -->
+            <max_memory_usage_for_user>0</max_memory_usage_for_user>
+            
+            <!-- ================================================ -->
+            <!-- TIMEOUT SETTINGS                                 -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                max_execution_time: Maximum seconds a query can run
+                - 300 = 5 minutes maximum
+                
+                PREVENTS:
+                - Runaway queries consuming resources forever
+                - Mistakes (SELECT * from billions of rows)
+                
+                FOR LOG INGESTION:
+                - Inserts typically complete in milliseconds
+                - 5 minutes is generous buffer for retries
+            -->
+            <max_execution_time>300</max_execution_time>
+            
+            <!-- 
+                send_timeout: Seconds to wait when sending data to client
+                - 300 = 5 minutes to send response
+                
+                FOR LARGE RESULTS:
+                - Slow client connections
+                - Large query results
+                - Must match client request_timeout in database.js (60s)
+            -->
+            <send_timeout>300</send_timeout>
+            
+            <!-- 
+                receive_timeout: Seconds to wait when receiving data from client
+                - 300 = 5 minutes to receive request
+                
+                FOR LARGE INSERTS:
+                - Batch inserts with millions of rows
+                - Slow client upload speed
+                - Must match client request_timeout in database.js (60s)
+            -->
+            <receive_timeout>300</receive_timeout>
+            
+            <!-- 
+                tcp_keep_alive_timeout: Seconds to keep idle TCP connections alive
+                - 60 = 1 minute keep-alive
+                
+                PREVENTS:
+                - Firewalls closing idle connections
+                - Connection pool exhaustion
+                - Matches keep_alive in database.js (60s)
+            -->
+            <tcp_keep_alive_timeout>60</tcp_keep_alive_timeout>
+            
+            <!-- 
+                queue_max_wait_ms: Maximum milliseconds to wait in query queue
+                - 5000 = 5 seconds maximum queue time
+                
+                WHEN QUEUED:
+                - All query slots are full (max_concurrent_queries reached)
+                - Query waits for available slot
+                - After 5s, returns "too many simultaneous queries" error
+            -->
+            <queue_max_wait_ms>5000</queue_max_wait_ms>
+            
+            <!-- ================================================ -->
+            <!-- OPTIMIZATION FLAGS (Speed over Durability)       -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                optimize_on_insert: Run optimization after each insert
+                - 0 = Don't optimize (faster inserts)
+                - 1 = Optimize immediately (slower inserts)
+                
+                WHAT OPTIMIZATION DOES:
+                - Merges small data parts into larger ones
+                - Improves query performance
+                
+                WHY DISABLED:
+                - Slows down inserts by 50-80%
+                - Background merges handle optimization automatically
+                - For 100k/sec, this MUST be 0
+            -->
+            <optimize_on_insert>0</optimize_on_insert>
+            
+            <!-- 
+                insert_deduplicate: Check for duplicate data on insert
+                - 0 = No deduplication (faster)
+                - 1 = Deduplicate based on primary key
+                
+                PERFORMANCE:
+                - Deduplication requires reading existing data
+                - 20-30% slower inserts
+                - For logs: Handle duplicates at application level if needed
+            -->
+            <insert_deduplicate>0</insert_deduplicate>
+            
+            <!-- 
+                fsync_after_insert: Force disk sync after insert
+                - 0 = Don't force sync (faster, less durable)
+                - 1 = fsync() after each insert (slower, more durable)
+                
+                DURABILITY VS SPEED:
+                - 0: Data in OS cache, written to disk within seconds
+                - 1: Data immediately on disk (survives power loss)
+                
+                RISK WITH 0:
+                - Power failure before OS flush = data loss
+                - For logs: Acceptable risk (can resend if needed)
+                - 100x faster inserts with 0
+            -->
+            <fsync_after_insert>0</fsync_after_insert>
+            
+            <!-- 
+                fsync_metadata: Force sync of metadata (table structure changes)
+                - 0 = Don't force sync
+                - 1 = Sync metadata immediately
+                
+                WHAT METADATA:
+                - Table creation, column additions, etc.
+                - Not relevant for inserts (only DDL operations)
+                - 0 for performance
+            -->
+            <fsync_metadata>0</fsync_metadata>
+            
+            <!-- ================================================ -->
+            <!-- FORMAT & PARSING SETTINGS                        -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                input_format_parallel_parsing: Parse input data using multiple threads
+                - 1 = Enabled (faster for large batches)
+                - 0 = Single-threaded parsing
+                
+                WHEN IT HELPS:
+                - Large JSON arrays or CSV files
+                - Multiple threads parse different sections simultaneously
+                - 2-3x faster parsing for batch inserts
+            -->
+            <input_format_parallel_parsing>1</input_format_parallel_parsing>
+            
+            <!-- 
+                max_read_buffer_size: Size of buffer when reading input data (bytes)
+                - 10485760 = 10MB buffer
+                
+                AFFECTS:
+                - How much data is read into memory at once
+                - Larger buffer = fewer system calls = faster parsing
+                - 10MB good for typical JSON log batches
+            -->
+            <max_read_buffer_size>10485760</max_read_buffer_size>
+            
+            <!-- 
+                input_format_values_interpret_expressions: Evaluate expressions in INSERT VALUES
+                - 0 = Disabled (faster, safer)
+                - 1 = Allow expressions like now(), rand()
+                
+                SECURITY:
+                - 1 allows arbitrary expressions (potential code injection)
+                - 0 only accepts literal values
+                - For API inserts: Must be 0 for security
+            -->
+            <input_format_values_interpret_expressions>0</input_format_values_interpret_expressions>
+            
+            <!-- ================================================ -->
+            <!-- NETWORK SETTINGS                                 -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                max_network_bandwidth: Maximum network throughput (bytes/second)
+                - 10000000000 = 10 Gbps (10 gigabits per second)
+                - Prevents ClickHouse from saturating network
+                - Adjust based on your network card speed
+            -->
+            <max_network_bandwidth>10000000000</max_network_bandwidth>
+            
+            <!-- 
+                max_network_bytes: Maximum bytes to transfer per query
+                - 10000000000 = 10GB per query
+                - Prevents single query from transferring too much data
+            -->
+            <max_network_bytes>10000000000</max_network_bytes>
+            
+            <!-- 
+                http_connection_pool_size: Number of connections in HTTP client pool
+                - 1024 = For making HTTP requests to external services
+                - Used for distributed queries and URL functions
+            -->
+            <http_connection_pool_size>1024</http_connection_pool_size>
+            
+            <!-- 
+                send_progress_in_http_headers: Send query progress in HTTP headers
+                - 0 = Disabled (faster)
+                - 1 = Send X-ClickHouse-Progress headers
+                
+                WHAT IT DOES:
+                - Client sees query progress (rows read, bytes processed)
+                - Useful for long-running queries
+                
+                WHY DISABLED:
+                - Adds overhead to every request
+                - Not needed for fast inserts
+                - Enable for analytics/monitoring users
+            -->
+            <send_progress_in_http_headers>0</send_progress_in_http_headers>
+            
+            <!-- 
+                http_response_buffer_size: Buffer size for HTTP responses (bytes)
+                - 10485760 = 10MB buffer
+                
+                PERFORMANCE:
+                - Larger buffer = fewer network writes
+                - Reduces system calls
+                - Good for large query results
+            -->
+            <http_response_buffer_size>10485760</http_response_buffer_size>
+            
+            <!-- 
+                http_send_timeout: Timeout for sending HTTP requests (seconds)
+                - 300 = 5 minutes to send complete request
+                - Long timeout for large batch inserts
+            -->
+            <http_send_timeout>300</http_send_timeout>
+
+            <!-- 
+                http_receive_timeout: Timeout for receiving HTTP responses (seconds)
+                - 300 = 5 minutes to receive complete response
+                - Long timeout for large data transfers
+            -->
+            <http_receive_timeout>300</http_receive_timeout>
+            
+            <!-- 
+                keep_alive_timeout: How long to keep idle HTTP connections open (seconds)
+                - 60 = Keep connections alive for 1 minute
+                - Reduces overhead of establishing new connections
+                - Matches client keep_alive setting in database.js
+            -->
+            <keep_alive_timeout>60</keep_alive_timeout>
+            
+            <!-- 
+                max_http_get_redirects: Maximum HTTP redirects to follow
+                - 10 = Follow up to 10 redirect chains
+                - Prevents infinite redirect loops
+            -->
+            <max_http_get_redirects>10</max_http_get_redirects>
+
+            <!-- 
+                http_wait_end_of_query: Wait for query to finish before sending response
+                - 0 = Stream results as they're ready (faster)
+                - 1 = Buffer entire result before sending
+                
+                FOR INSERTS:
+                - With async_insert=1, response is immediate anyway
+                - 0 for better streaming query performance
+            -->
+            <http_wait_end_of_query>0</http_wait_end_of_query>
+            
+            <!-- ================================================ -->
+            <!-- CACHE SETTINGS                                   -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                use_uncompressed_cache: Use the uncompressed data cache for queries
+                - 1 = Enabled (faster repeated queries)
+                - 0 = Disabled
+                
+                WHAT IT CACHES:
+                - Decompressed data blocks in memory (8GB from server.xml)
+                - Massive speedup for queries hitting same data
+                - Important even for write-heavy workload (status queries)
+            -->
+            <use_uncompressed_cache>1</use_uncompressed_cache>
+            
+            <!-- 
+                use_query_cache: Cache complete query results
+                - 0 = Disabled (for write profile)
+                - 1 = Enabled (good for read profile)
+                
+                WHY DISABLED FOR WRITES:
+                - Log ingestion doesn't repeat queries
+                - Cache would be useless and waste memory
+                - Enabled in 'readonly' profile below for analytics
+            -->
+            <use_query_cache>0</use_query_cache>
+            
+            <!-- ================================================ -->
+            <!-- QUERY LIMITS                                     -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                max_query_size: Maximum query text size (bytes)
+                - 268435456 = 256MB maximum SQL query size
+                
+                PROTECTS AGAINST:
+                - Accidental huge queries
+                - Malicious large payloads
+                
+                FOR BATCH INSERTS:
+                - Large JSON arrays in INSERT INTO...VALUES
+                - 256MB allows ~1M log entries per request
+            -->
+            <max_query_size>268435456</max_query_size>
+            
+            <!-- 
+                max_ast_elements: Maximum elements in query's abstract syntax tree
+                - 500000 = 500K AST nodes
+                
+                WHAT IT LIMITS:
+                - Query complexity (nested subqueries, joins, etc.)
+                - Large IN() clauses
+                - Prevents parser from consuming too much memory
+            -->
+            <max_ast_elements>500000</max_ast_elements>
+            
+            <!-- 
+                max_expanded_ast_elements: Maximum after macro/alias expansion
+                - 500000 = 500K nodes after expansion
+                
+                CATCHES:
+                - Recursive macros
+                - Alias explosion
+                - Complex generated queries
+            -->
+            <max_expanded_ast_elements>500000</max_expanded_ast_elements>
+            
+            <!-- ================================================ -->
+            <!-- JOIN SETTINGS                                    -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                max_bytes_in_join: Maximum memory for JOIN operations (bytes)
+                - 10737418240 = 10GB for joins
+                
+                FOR ANALYTICS:
+                - Joining logs with user tables
+                - Aggregating across dimensions
+                - 10GB handles large joins
+            -->
+            <max_bytes_in_join>10737418240</max_bytes_in_join>
+            
+            <!-- 
+                join_algorithm: Which algorithm to use for joins
+                - auto = ClickHouse chooses best algorithm
+                - hash = Hash join (good for small tables)
+                - parallel_hash = Parallel hash join
+                - partial_merge = Sort-merge join
+                
+                AUTO SELECTION:
+                - Analyzes table sizes
+                - Picks optimal algorithm
+                - Best for general use
+            -->
+            <join_algorithm>auto</join_algorithm>
+            
+            <!-- ================================================ -->
+            <!-- DISTRIBUTED QUERY SETTINGS                       -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                distributed_aggregation_memory_efficient: Use less memory for distributed aggregations
+                - 1 = Enabled (slower but uses less RAM)
+                - 0 = Disabled (faster but more RAM)
+                
+                FOR CLUSTERS:
+                - Aggregating data across multiple nodes
+                - 1 = Stream partial results (lower memory)
+                - Good for large clusters
+            -->
+            <distributed_aggregation_memory_efficient>1</distributed_aggregation_memory_efficient>
+            
+            <!-- 
+                distributed_product_mode: Allow GLOBAL JOINs in distributed queries
+                - allow = Allow GLOBAL JOIN
+                - deny = Forbid GLOBAL JOIN
+                
+                GLOBAL JOIN:
+                - Broadcasts small table to all nodes
+                - Expensive but sometimes necessary
+                - 'allow' for flexibility
+            -->
+            <distributed_product_mode>allow</distributed_product_mode>
+            
+            <!-- 
+                load_balancing: How to distribute queries across replicas
+                - random = Pick random replica
+                - nearest_hostname = Prefer closest replica
+                - in_order = Try first, then second, etc.
+                - first_or_random = Prefer first, random if unavailable
+                
+                RANDOM:
+                - Spreads load evenly
+                - Simple and effective
+                - Good for clusters behind load balancer
+            -->
+            <load_balancing>random</load_balancing>
+            
+            <!-- ================================================ -->
+            <!-- LOGGING SETTINGS                                 -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                log_queries: Write all queries to system.query_log table
+                - 0 = Disabled (better performance)
+                - 1 = Enabled (for monitoring)
+                
+                WHY DISABLED:
+                - At 100k/sec, logging creates overhead
+                - Query log table grows huge
+                - Enable only for debugging
+                - Enabled in 'readonly' profile for analytics monitoring
+            -->
+            <log_queries>0</log_queries>
+            
+            <!-- 
+                log_queries_min_type: Minimum query type to log (when log_queries=1)
+                - EXCEPTION_WHILE_PROCESSING = Only log failed queries
+                - QUERY_START = Log all queries
+                
+                EVEN WITH log_queries=0:
+                - Exceptions are still logged
+                - Good for catching errors
+            -->
+            <log_queries_min_type>EXCEPTION_WHILE_PROCESSING</log_queries_min_type>
+            
+            <!-- 
+                log_query_threads: Log thread-level information for queries
+                - 0 = Disabled
+                - 1 = Log thread activity to system.query_thread_log
+                
+                OVERHEAD:
+                - Very detailed logging
+                - Only for deep performance debugging
+                - Keep disabled for production
+            -->
+            <log_query_threads>0</log_query_threads>
+            
+            <!-- ================================================ -->
+            <!-- RESULT SETTINGS                                  -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                max_result_rows: Maximum rows returned by SELECT
+                - 1000000 = 1 million rows maximum
+                
+                PROTECTS:
+                - Client from being overwhelmed
+                - Network from huge transfers
+                - Memory from large result sets
+                
+                FOR LOGS:
+                - Use LIMIT in queries
+                - 1M rows rarely needed
+            -->
+            <max_result_rows>1000000</max_result_rows>
+            
+            <!-- 
+                max_result_bytes: Maximum bytes in SELECT result
+                - 1073741824 = 1GB maximum
+                
+                PREVENTS:
+                - Out-of-memory on client
+                - Network saturation
+                - Works with max_result_rows (whichever limit hit first)
+            -->
+            <max_result_bytes>1073741824</max_result_bytes>
+            
+            <!-- 
+                result_overflow_mode: What to do when result limits exceeded
+                - throw = Return error
+                - break = Return partial results
+                
+                THROW:
+                - Forces proper use of LIMIT
+                - Client knows data is incomplete
+                - Better than silently truncating
+            -->
+            <result_overflow_mode>throw</result_overflow_mode>
+            
+            <!-- ================================================ -->
+            <!-- ACCESS CONTROL SETTINGS                          -->
+            <!-- ================================================ -->
+            
+            <!-- 
+                readonly: Restrict user to read-only operations
+                - 0 = Full access (INSERT, SELECT, DDL)
+                - 1 = Read-only (SELECT only)
+                - 2 = Read-only except SET queries
+                
+                FOR LOG WRITER:
+                - 0 = Can insert logs
+                - See 'readonly' profile below for read-only users
+            -->
+            <readonly>0</readonly>
+            
+            <!-- 
+                allow_ddl: Allow Data Definition Language (CREATE, ALTER, DROP)
+                - 1 = Allowed
+                - 0 = Forbidden
+                
+                FOR APPLICATION:
+                - 1 = Can create tables if needed
+                - Production: Consider 0 (manage schema separately)
+            -->
+            <allow_ddl>1</allow_ddl>
+        </default>
+        
+        <!-- 
+            PROFILE: readonly
+            Read-only profile for analytics and monitoring
+            Lower resource limits, query caching enabled, full logging
+        -->
+        <readonly>
+            <!-- 
+                readonly: Enforce read-only mode
+                - 1 = Can only run SELECT queries
+                - No INSERT, UPDATE, DELETE, or DDL
+            -->
+            <readonly>1</readonly>
+            
+            <!-- 
+                max_memory_usage: Lower memory limit for read-only users
+                - 5368709120 = 5GB (half of write profile)
+                - Prevents analytics from impacting ingestion
+            -->
+            <max_memory_usage>5368709120</max_memory_usage>
+            
+            <!-- 
+                max_threads: Fewer threads for analytics
+                - 4 = Half the threads of write profile
+                - Saves CPU for write operations
+            -->
+            <max_threads>4</max_threads>
+            
+            <!-- 
+                max_execution_time: Shorter timeout for analytics
+                - 60 = 1 minute maximum
+                - Faster queries for dashboards
+                - Prevents long-running analytics from blocking
+            -->
+            <max_execution_time>60</max_execution_time>
+            
+            <!-- 
+                use_uncompressed_cache: Enable cache for repeated queries
+                - 1 = Great for dashboards hitting same data
+            -->
+            <use_uncompressed_cache>1</use_uncompressed_cache>
+            
+            <!-- 
+                use_query_cache: Cache complete query results
+                - 1 = Dashboard queries return instantly on repeat
+                - Huge performance win for monitoring
+            -->
+            <use_query_cache>1</use_query_cache>
+            
+            <!-- 
+                log_queries: Enable query logging for analytics monitoring
+                - 1 = Track what analytics users are querying
+                - Helps optimize dashboard performance
+            -->
+            <log_queries>1</log_queries>
+        </readonly>
+    </profiles>
+    
+    <!-- ================================================ -->
+    <!-- USERS: Authentication and Authorization          -->
+    <!-- ================================================ -->
+    
+    <users>
+        <!-- 
+            USER: default
+            Default development/admin user
+            Full access for testing and administration
+        -->
+        <default>
+            <!-- 
+                password: Plain text password (empty = no password)
+                
+                PRODUCTION ALTERNATIVES:
+                - <password_sha256_hex>HASH</password_sha256_hex>
+                - <password_double_sha1_hex>HASH</password_double_sha1_hex>
+                
+                GENERATE HASH:
+                - echo -n 'mypassword' | sha256sum
+            -->
+            <password></password>
+            
+            <!-- 
+                profile: Which profile to use (from <profiles> above)
+                - 'default' = High-throughput write profile
+            -->
+            <profile>default</profile>
+            
+            <!-- 
+                quota: Which quota to apply (from <quotas> below)
+                - 'default' = Unlimited quota
+            -->
+            <quota>default</quota>
+            
+            <!-- 
+                networks: Which IPs can use this user
+                - <ip>::/0</ip> = Allow from anywhere (IPv6)
+                - <ip>0.0.0.0/0</ip> = Allow from anywhere (IPv4)
+                
+                PRODUCTION:
+                - <ip>10.0.0.0/8</ip> = Private network only
+                - <ip>192.168.1.100</ip> = Specific IP
+            -->
+            <networks>
+                <ip>192.168.1.27</ip>
+            </networks>
+            
+            <!-- 
+                access_management: Can manage other users/roles
+                - 1 = Can CREATE USER, GRANT, REVOKE
+                - 0 = Cannot manage access
+                
+                ADMIN USER:
+                - 1 for default user (for creating other users)
+            -->
+            <access_management>1</access_management>
+        </default>
+        
+        <!-- 
+            USER: log_writer
+            Production user for log ingestion service
+            Write access to logs_db only
+        -->
+        <log_writer>
+            <!-- 
+                password: Set secure password in production
+                Example SHA256:
+                <password_sha256_hex>e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</password_sha256_hex>
+            -->
+            <password></password>
+            
+            <!-- Use write-optimized profile -->
+            <profile>default</profile>
+            
+            <!-- Unlimited quota for log ingestion -->
+            <quota>default</quota>
+            
+            <!-- Allow from anywhere (restrict in production) -->
+            <networks>
+                <ip>192.168.1.27</ip>
+            </networks>
+            
+            <!-- 
+                grants: SQL GRANT statements to apply
+                - GRANT ALL ON logs_db.* = Full access to logs_db database
+                - Can INSERT, SELECT, ALTER logs_db tables
+                - Cannot access other databases
+            -->
+            <grants>
+                <query>GRANT ALL ON logs_db.*</query>
+            </grants>
+        </log_writer>
+        
+        <!-- 
+            USER: log_reader
+            Read-only user for analytics and monitoring
+            SELECT access to logs_db only
+        -->
+        <log_reader>
+            <!-- Set password in production -->
+            <password></password>
+            
+            <!-- Use read-only profile with caching -->
+            <profile>readonly</profile>
+            
+            <!-- Unlimited reads -->
+            <quota>default</quota>
+            
+            <!-- Allow from anywhere (restrict in production) -->
+            <networks>
+                <ip>192.168.1.27</ip>
+            </networks>
+            
+            <!-- 
+                grants: Only SELECT permission
+                - Can read logs_db data
+                - Cannot insert, update, or modify
+            -->
+            <grants>
+                <query>GRANT SELECT ON logs_db.*</query>
+            </grants>
+        </log_reader>
+    </users>
+    
+    <!-- ================================================ -->
+    <!-- QUOTAS: Resource Usage Limits                    -->
+    <!-- ================================================ -->
+    
+    <quotas>
+        <!-- 
+            QUOTA: default
+            Unlimited usage quota
+            
+            For production, consider limits like:
+            - Max queries per hour
+            - Max errors allowed
+            - Max rows to read
+        -->
+        <default>
+            <!-- 
+                interval: Time period for quota limits
+            -->
+            <interval>
+                <!-- 
+                    duration: Quota period in seconds
+                    - 3600 = 1 hour
+                    - Quota resets every hour
+                -->
+                <duration>3600</duration>
+                
+                <!-- 
+                    queries: Max queries in this interval
+                    - 0 = Unlimited
+                    - Example: 10000 = 10k queries per hour
+                -->
+                <queries>0</queries>
+                
+                <!-- 
+                    errors: Max query errors in this interval
+                    - 0 = Unlimited
+                    - Example: 100 = Block user after 100 errors/hour
+                -->
+                <errors>0</errors>
+                
+                <!-- 
+                    result_rows: Max total rows returned in this interval
+                    - 0 = Unlimited
+                    - Example: 1000000000 = 1 billion rows/hour
+                -->
+                <result_rows>0</result_rows>
+                
+                <!-- 
+                    read_rows: Max rows scanned in this interval
+                    - 0 = Unlimited
+                    - Prevents expensive full-table scans
+                -->
+                <read_rows>0</read_rows>
+                
+                <!-- 
+                    execution_time: Max total query execution time (seconds)
+                    - 0 = Unlimited
+                    - Example: 3600 = 1 hour of query time per hour
+                    - Prevents CPU monopolization
+                -->
+                <execution_time>0</execution_time>
+            </interval>
+        </default>
+    </quotas>
+</clickhouse>

@@ -6,7 +6,7 @@ const { createClient } = require('@clickhouse/client');
  */
 function createClickHouseClient() {
   const client = createClient({
-    host: process.env.CLICKHOUSE_HOST || 'http://127.0.0.1:8123',
+    host: process.env.CLICKHOUSE_HOST || 'http://localhost:8123',
     database: process.env.CLICKHOUSE_DATABASE || 'logs_db',
     username: process.env.CLICKHOUSE_USER || 'default',
     password: process.env.CLICKHOUSE_PASSWORD || '',
@@ -58,12 +58,10 @@ function createClickHouseClient() {
       send_timeout: 300,                            // 5 min send timeout
       receive_timeout: 300,                         // 5 min receive timeout
       send_progress_in_http_headers: 0,             // Disable progress updates for performance
-      http_connection_pool_size: 1024,              // Large connection pool on server side
 
       // === Optimization Flags ===
       optimize_on_insert: 0,                        // Skip optimization on insert (faster)
       insert_deduplicate: 0,                        // No deduplication
-      fsync_after_insert: 0,                        // Don't force sync (faster, less durable)
       
       // === Format Settings ===
       input_format_parallel_parsing: 1,             // Parallel parsing of input data

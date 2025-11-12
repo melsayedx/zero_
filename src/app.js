@@ -2,8 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const DIContainer = require('./config/di-container');
 const setupRoutes = require('./adapters/http/routes');
-const ResponseHelper = require('./adapters/http/response-helper');
-const HttpStatus = require('./config/http-status');
 const { metricsMiddleware, getMetrics, resetMetrics } = require('./middleware/metrics');
 const compression = require('compression');
 const helmet = require('helmet');
@@ -46,7 +44,7 @@ app.use((req, res, next) => {
 // Metrics endpoint (before other routes to avoid tracking it)
 app.get('/metrics', (req, res) => {
   const metrics = getMetrics();
-  return res.status(HttpStatus.OK).json(metrics);
+  return res.status(200).json(metrics);
 });
 
 // Setup routes with controllers from DI container
@@ -55,8 +53,8 @@ app.use(setupRoutes(controllers));
 
 // 404 handler
 app.use((req, res) => {
-  return ResponseHelper.error(res, {
-    statusCode: HttpStatus.NOT_FOUND,
+  return res.status(404).json({
+    success: false,
     message: 'Endpoint not found'
   });
 });
@@ -64,11 +62,11 @@ app.use((req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  return ResponseHelper.internalError(
-    res,
-    'Internal server error',
-    process.env.NODE_ENV === 'development' ? err.message : null
-  );
+  return res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
 });
 
 // Server configuration

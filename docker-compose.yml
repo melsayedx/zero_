@@ -1,24 +1,41 @@
-version: '3.8'
-
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     container_name: log-platform-clickhouse
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native TCP interface
     environment:
       CLICKHOUSE_DB: logs_db
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     volumes:
+      # Data persistence
       - clickhouse_data:/var/lib/clickhouse
-      - ./init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./clickhouse-config.xml:/etc/clickhouse-server/config.d/performance.xml
+      
+      # Database initialization
+      # - ./init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
+      
+      # Custom server configuration (100k/sec optimized)
+      # - ./config/clickhouse/config.d/server.xml:/etc/clickhouse-server/config.d/server.xml
+      # - ./config/clickhouse/users.d/users.xml:/etc/clickhouse-server/users.d/users.xml
+      
+      # Logs directory (optional, for debugging)
+      - ./clickhouse-logs:/var/log/clickhouse-server
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+    # Resource limits (adjust based on your hardware)
+    # Recommended: 8+ cores, 32GB+ RAM for 100k/sec throughput
+    deploy:
+      resources:
+        limits:
+          cpus: '6'
+          memory: 24G
+        reservations:
+          cpus: '4'
+          memory: 16G
 
 volumes:
   clickhouse_data:

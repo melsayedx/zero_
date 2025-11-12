@@ -1,0 +1,354 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <skip_check_for_incorrect_settings>1</skip_check_for_incorrect_settings>
+    <!-- 
+        ClickHouse Server Configuration for High-Throughput Log Ingestion
+        Optimized for 100k requests/second throughput
+        
+        This file contains server-level settings that apply globally to all users and connections.
+        Settings here cannot be overridden by individual clients.
+    -->
+
+    <!-- 
+        listen_host: Network interface to bind to
+        - '::' = Listen on all IPv4 and IPv6 interfaces (0.0.0.0)
+        - Use specific IP for security in production (e.g., '192.168.1.27' for local only)
+    -->
+    <listen_host>0.0.0.0</listen_host>
+
+    <!-- 
+        http_server_default_response: HTML returned when accessing root URL via browser
+        - Shows friendly message instead of error when visiting http://localhost:8123/
+    -->
+    <http_server_default_response><![CDATA[<html><body>ClickHouse server is running</body></html>]]></http_server_default_response>
+    
+    <!-- 
+        Logger Configuration: Controls how ClickHouse writes logs
+    -->
+    <logger>
+        <!-- 
+            level: Minimum log level to record
+            - Options: trace, debug, information, warning, error
+            - 'information' = Standard production logging (not too verbose)
+        -->
+        <level>information</level>
+        
+        <!-- 
+            log: Path to main log file
+            - Records all server operations, queries, connections
+        -->
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        
+        <!-- 
+            errorlog: Path to error-only log file
+            - Separate file makes troubleshooting easier
+        -->
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        
+        <!-- 
+            size: Maximum size of each log file before rotation
+            - 1000M = 1GB per log file
+        -->
+        <size>1000M</size>
+        
+        <!-- 
+            count: Number of rotated log files to keep
+            - 10 files × 1GB = 10GB total log storage
+            - Older logs are automatically deleted
+        -->
+        <count>10</count>
+    </logger>
+
+    <!-- ============================================ -->
+    <!-- HIGH THROUGHPUT SETTINGS FOR 100K REQ/SEC   -->
+    <!-- ============================================ -->
+    
+    <!-- 
+        max_concurrent_queries: Maximum number of queries executing simultaneously
+        - 500 = Can handle 500 queries at once (reads + writes combined)
+        - Higher = more concurrency but more memory usage
+        - For 100k/sec with async inserts, this is sufficient
+    -->
+    <max_concurrent_queries>500</max_concurrent_queries>
+    
+    <!-- 
+        max_connections: Maximum number of simultaneous network connections
+        - 1000 = Can accept up to 1000 client connections
+        - Should be >= max_concurrent_queries
+        - Each Express instance uses up to 100 connections (from database.js)
+        - 1000 allows for ~10 Express instances + monitoring tools
+    -->
+    <max_connections>1000</max_connections>
+    
+    <!-- 
+        max_thread_pool_size: Size of the global thread pool
+        - 10000 = Pool of 10,000 threads for all operations
+        - Threads are reused, not created per query
+        - Large pool prevents thread starvation under high load
+        - OS limit: check ulimit -u (user process limit)
+    -->
+    <max_thread_pool_size>5568</max_thread_pool_size>
+    
+    <!-- 
+        background_pool_size: Number of threads for background tasks
+        - 32 = Dedicated threads for async operations like:
+          * Async inserts (critical for 100k/sec)
+          * Background mutations
+          * Data cleanup
+        - Higher = faster async insert processing
+    -->
+    <background_pool_size>32</background_pool_size>
+    
+    <!-- 
+        background_schedule_pool_size: Threads for scheduled background tasks
+        - 16 = Handles periodic tasks like:
+          * Merging data parts
+          * Removing old data (TTL)
+          * Dictionary updates
+        - Separate from background_pool_size to prevent blocking
+    -->
+    <background_schedule_pool_size>16</background_schedule_pool_size>
+    
+    <!-- 
+        background_message_broker_schedule_pool_size: Threads for message queue integrations
+        - 16 = For Kafka, RabbitMQ, etc. (if used)
+        - Not critical for direct HTTP ingestion but good to have
+    -->
+    <background_message_broker_schedule_pool_size>16</background_message_broker_schedule_pool_size>
+    
+    <!-- 
+        max_server_memory_usage: Maximum RAM the server can use
+        - 0 = Automatic (uses max_server_memory_usage_to_ram_ratio)
+        - Alternative: Set specific bytes (e.g., 34359738368 for 32GB)
+    -->
+    <max_server_memory_usage>0</max_server_memory_usage>
+    
+    <!-- 
+        max_server_memory_usage_to_ram_ratio: Percentage of total RAM to use when max_server_memory_usage=0
+        - 0.8 = Use up to 80% of available RAM
+        - Leaves 20% for OS, other processes, and buffers
+        - Example: 32GB RAM × 0.8 = 25.6GB for ClickHouse
+    -->
+    <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
+    
+    <!-- 
+        max_concurrent_insert_queries: Maximum INSERT queries running simultaneously
+        - 200 = Can process 200 inserts concurrently
+        - With async_insert, each query batches multiple inserts
+        - Higher value = better throughput for writes
+    -->
+    <max_concurrent_insert_queries>200</max_concurrent_insert_queries>
+    
+    <!-- 
+        max_concurrent_select_queries: Maximum SELECT queries running simultaneously
+        - 100 = Can process 100 read queries concurrently
+        - Lower than inserts since this is write-optimized setup
+        - Increase if you have heavy read workload
+    -->
+    <max_concurrent_select_queries>100</max_concurrent_select_queries>
+    
+    <!-- 
+        MergeTree Engine Settings: Controls how data is stored and merged
+        - MergeTree is the primary table engine for logs
+        - These settings optimize for write-heavy workloads
+    -->
+    <merge_tree>
+        <!-- 
+            max_suspicious_broken_parts: Max corrupted data parts before blocking inserts
+            - 100 = Allow up to 100 broken parts
+            - Higher = more tolerant of corruption (useful during recovery)
+        -->
+        <max_suspicious_broken_parts>100</max_suspicious_broken_parts>
+        
+        <!-- 
+            parts_to_delay_insert: Number of parts that triggers insert throttling
+            - 300 = Start slowing down inserts when 300 parts exist
+            - Gives merge process time to catch up
+            - Prevents too many small parts (which hurts query performance)
+        -->
+        <parts_to_delay_insert>300</parts_to_delay_insert>
+        
+        <!-- 
+            parts_to_throw_insert: Number of parts that blocks inserts completely
+            - 600 = Stop accepting inserts when 600 parts exist
+            - Prevents out-of-memory errors from too many parts
+            - Forces merges to complete before accepting more data
+        -->
+        <parts_to_throw_insert>600</parts_to_throw_insert>
+        
+        <!-- 
+            max_parts_in_total: Absolute maximum parts across all partitions
+            - 1000 = Hard limit of 1000 parts total
+            - Safety valve to prevent runaway part creation
+        -->
+        <max_parts_in_total>1000</max_parts_in_total>
+        
+        <!-- 
+            max_bytes_to_merge_at_max_space_in_pool: Largest merge size when plenty of disk space
+            - 161061273600 = 150GB maximum single merge operation
+            - Larger merges = fewer parts = better query performance
+            - Requires sufficient RAM (merges happen in memory)
+        -->
+        <max_bytes_to_merge_at_max_space_in_pool>161061273600</max_bytes_to_merge_at_max_space_in_pool>
+        
+        <!-- 
+            max_bytes_to_merge_at_min_space_in_pool: Largest merge size when low on disk space
+            - 10485760000 = 10GB minimum merge size
+            - Smaller merges when disk space is limited
+        -->
+        <max_bytes_to_merge_at_min_space_in_pool>10485760000</max_bytes_to_merge_at_min_space_in_pool>
+        
+        <!-- 
+            merge_max_block_size: Number of rows in a merged block
+            - 8192 = 8K rows per block
+            - Smaller blocks = more granular data access
+            - Balance between query speed and storage efficiency
+        -->
+        <merge_max_block_size>8192</merge_max_block_size>
+    </merge_tree>
+    
+    <!-- 
+        background_move_pool_size: Threads for moving data between disks
+        - 8 = Can move 8 parts simultaneously
+        - Used for tiered storage (hot/cold data)
+        - Not critical for single-disk setups
+    -->
+    <background_move_pool_size>8</background_move_pool_size>
+    
+    <!-- 
+        background_merges_mutations_concurrency_ratio: Controls merge parallelism
+        - 2 = Allow 2x more concurrent merges/mutations than CPU cores
+        - Higher = faster merge processing (but more CPU/memory usage)
+    -->
+    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+    
+    <!-- 
+        mark_cache_size: Cache for index marks (bytes)
+        - 5368709120 = 5GB cache
+        - Marks point to data blocks in storage
+        - Larger cache = faster queries (less disk reads for indexes)
+        - Critical for query performance with large datasets
+    -->
+    <mark_cache_size>5368709120</mark_cache_size>
+    
+    <!-- 
+        uncompressed_cache_size: Cache for uncompressed data blocks (bytes)
+        - 8589934592 = 8GB cache
+        - Stores decompressed data in memory
+        - Huge performance boost for repeated queries
+        - Most important cache for read performance
+    -->
+    <uncompressed_cache_size>8589934592</uncompressed_cache_size>
+    
+    <!-- 
+        query_cache_size: Cache for complete query results (bytes)
+        - 5368709120 = 5GB cache
+        - Stores entire query results for identical queries
+        - Great for dashboards with repeated queries
+        - Disabled in users.xml for write profile (enabled for read profile)
+    -->
+    <query_cache_size>5368709120</query_cache_size>
+    
+    <!-- 
+        Compression Settings: How data is compressed on disk
+    -->
+    <compression>
+        <case>
+            <!-- 
+                method: Compression algorithm
+                - lz4 = Fast compression with good ratio (~3x)
+                - Alternative: zstd (better compression but slower)
+                - lz4 chosen for speed (critical for write performance)
+            -->
+            <method>lz4</method>
+        </case>
+    </compression>
+    
+    <!-- 
+        builtin_dictionaries_reload_interval: How often to reload built-in dictionaries (seconds)
+        - 3600 = Every 1 hour
+        - Dictionaries provide data enrichment (geo, user agents, etc.)
+        - Less frequent = lower overhead
+    -->
+    <builtin_dictionaries_reload_interval>3600</builtin_dictionaries_reload_interval>
+    
+    <!-- 
+        Path Configuration: Where ClickHouse stores data and files
+    -->
+    
+    <!-- 
+        path: Main data directory
+        - All table data, metadata, and indexes stored here
+        - Should be on fast SSD for best performance
+    -->
+    <path>/var/lib/clickhouse/</path>
+    
+    <!-- 
+        tmp_path: Temporary files for query processing
+        - Used for sorts, joins, and intermediate data
+        - Should be on fast disk (preferably SSD)
+    -->
+    <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+    
+    <!-- 
+        user_files_path: Files accessible via file() table function
+        - For importing CSVs, JSONs, etc.
+    -->
+    <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+    
+    <!-- 
+        format_schema_path: Schema files for formats like Protobuf, Cap'n Proto
+        - Not used for JSON ingestion but good to have
+    -->
+    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
+    
+    <!-- 
+        Access Control: Where user and permission definitions are stored
+    -->
+    <user_directories>
+        <!-- 
+            users_xml: Load users from XML file
+            - Points to users.xml (our custom user configuration)
+        -->
+        <users_xml>
+            <path>users.xml</path>
+        </users_xml>
+        
+        <!-- 
+            local_directory: Store users/roles created via SQL in this directory
+            - Allows RBAC (Role-Based Access Control) via SQL commands
+        -->
+        <local_directory>
+            <path>/var/lib/clickhouse/access/</path>
+        </local_directory>
+    </user_directories>
+    
+    <!-- 
+        default_profile: Profile to use when not specified by client
+        - 'default' = Use the 'default' profile from users.xml
+        - This is our high-throughput write-optimized profile
+    -->
+    <default_profile>default</default_profile>
+    
+    <!-- 
+        default_database: Database to use when not specified
+        - 'default' = Use the built-in 'default' database
+        - Our logs are in 'logs_db', so clients must specify it
+    -->
+    <default_database>default</default_database>
+    
+    <!-- 
+        timezone: Server timezone for timestamp operations
+        - UTC = Universal time (recommended for logs)
+        - Prevents timezone confusion across different regions
+    -->
+    <timezone>UTC</timezone>
+    
+    <!-- 
+        asynchronous_metrics_update_period_s: How often to update system metrics (seconds)
+        - 60 = Update metrics every minute
+        - Lower = more accurate monitoring (but more overhead)
+        - Metrics viewable in system.asynchronous_metrics table
+    -->
+    <asynchronous_metrics_update_period_s>60</asynchronous_metrics_update_period_s>
+</clickhouse>
