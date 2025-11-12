@@ -1,5 +1,6 @@
 const LogEntry = require('../entities/log-entry');
 const IngestResult = require('./ingest-result');
+const IngestLogPort = require('../ports/ingest-log.port');
 
 /**
  * IngestLog Use Case
@@ -11,8 +12,9 @@ const IngestResult = require('./ingest-result');
  *
  * This follows the Dependency Inversion Principle and Hexagonal Architecture
  */
-class IngestLogUseCase {
+class IngestLogUseCase extends IngestLogPort {
   constructor(logRepository) {
+    super();
     if (!logRepository  || typeof logRepository.save !== 'function') {
       throw new Error('LogRepository is required and must implement the save() method');
     }

@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const DIContainer = require('./config/di-container');
 const setupRoutes = require('./adapters/http/routes');
-const { metricsMiddleware, getMetrics, resetMetrics } = require('./middleware/metrics');
 const compression = require('compression');
 const helmet = require('helmet');
 
@@ -32,19 +31,10 @@ app.use(compression({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Metrics tracking middleware
-app.use(metricsMiddleware);
-
 // Request logging middleware (simple)
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
-});
-
-// Metrics endpoint (before other routes to avoid tracking it)
-app.get('/metrics', (req, res) => {
-  const metrics = getMetrics();
-  return res.status(200).json(metrics);
 });
 
 // Setup routes with controllers from DI container

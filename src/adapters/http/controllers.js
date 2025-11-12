@@ -55,26 +55,38 @@ class HealthCheckController {
 
   async handle(req, res) {
     try {
-      const isHealthy = await this.logRepository.healthCheck();  
+      const healthStatus = await this.logRepository.healthCheck();
 
-      if (isHealthy.healthy) {
+      if (healthStatus.healthy) {
         return res.status(200).json({
           success: true,
           message: 'Service is healthy',
-          data: { timestamp: isHealthy.timestamp }
+          data: {
+            timestamp: healthStatus.timestamp,
+            latency: healthStatus.latency,
+            pingLatency: healthStatus.pingLatency,
+            version: healthStatus.version
+          }
         });
       } else {
         return res.status(503).json({
           success: false,
           message: 'Service is unhealthy - database connection failed',
-          error: { timestamp: isHealthy.timestamp  }
+          error: {
+            message: healthStatus.error,
+            timestamp: healthStatus.timestamp,
+            latency: healthStatus.latency
+          }
         });
       }
     } catch (error) {
       return res.status(503).json({
         success: false,
         message: 'Service is unhealthy',
-        error: { message: error.message, timestamp: isHealthy.timestamp  }
+        error: {
+          message: error.message,
+          timestamp: new Date().toISOString()
+        }
       });
     }
   }
@@ -107,25 +119,29 @@ class GetLogsByAppIdController {
   async handle(req, res) {
     try {
       const { app_id } = req.params;
-      const limit = parseInt(req.query.limit) || 1000;  // Default to 100 instead of 10000
+      const limit = parseInt(req.query.limit) || 1000;
 
       // Execute use case
-      const result = await this.getLogsByAppIdUseCase.execute(app_id, limit);
-      
-      if (result.success) {
-        return res.status(200).json({
-          success: true,
-          message: result.message,
-          data: result.data
-        });
-      } else {
+      const queryResult = await this.getLogsByAppIdUseCase.execute(app_id, limit);
+
+      // Return successful query result
+      return res.status(200).json({
+        success: true,
+        message: `Retrieved ${queryResult.count} log entries for app_id: ${app_id}`,
+        data: queryResult.toDetailedReport()
+      });
+
+    } catch (error) {
+      // Handle validation and business logic errors
+      if (error.message.includes('app_id') || error.message.includes('Limit')) {
         return res.status(400).json({
           success: false,
-          message: result.message,
-          error: result.error
+          message: 'Invalid request parameters',
+          error: error.message
         });
       }
-    } catch (error) {
+
+      // Handle internal errors
       return res.status(500).json({
         success: false,
         message: 'Internal server error',

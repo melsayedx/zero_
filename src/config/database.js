@@ -35,12 +35,12 @@ function createClickHouseClient() {
       async_insert: 1,                              // Enable async inserts
       wait_for_async_insert: 0,                     // Don't wait for ACK (max speed)
       async_insert_deduplicate: 0,                  // Disable dedup (faster)
-      
+    
       // Batch accumulation settings
       async_insert_busy_timeout_ms: 200,            // Min wait: accumulate for 200ms
       async_insert_busy_timeout_max_ms: 1000,       // Max wait: flush after 1s
       async_insert_max_data_size: 10485760,         // 10MB buffer before flush
-      async_insert_threads: 16,                     // Parallel async insert threads
+      async_insert_threads: 8,                     // Parallel async insert threads
       
       // === Write Performance Settings ===
       max_insert_threads: 8,                        // Parallel insert execution

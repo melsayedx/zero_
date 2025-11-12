@@ -338,8 +338,17 @@ class ClickHouseRepository extends LogRepositoryPort {
       });
 
       const stats = [];
-      for await (const row of result.stream()) {
-        stats.push(row);
+      try {
+        for await (const row of result.stream()) {
+          stats.push(row);
+        }
+      } catch (error) {
+        if (error.code === 'ABORT_ERR' || error.name === 'AbortError') {
+          console.warn('Stats query stream aborted');
+          // Return partial stats if available
+        } else {
+          throw error;
+        }
       }
 
       return {
@@ -360,25 +369,23 @@ class ClickHouseRepository extends LogRepositoryPort {
     const startTime = Date.now();
 
     try {
+      // Test basic connectivity with ping
       await this.client.ping();
-      const latency = Date.now() - startTime;
+      const pingLatency = Date.now() - startTime;
 
-      // Get version info
-      const versionResult = await this.client.query({
-        query: 'SELECT version() as version',
-        format: 'JSONEachRow'
+      // Test database accessibility with a simple command
+      await this.client.command({
+        query: 'SELECT 1',
+        clickhouse_settings: {
+          max_execution_time: 5  // 5 second timeout for health check
+        }
       });
-
-      let version = 'unknown';
-      for await (const row of versionResult.stream()) {
-        version = row.version;
-        break;
-      }
 
       return {
         healthy: true,
-        latency,
-        version,
+        latency: Date.now() - startTime,
+        pingLatency,
+        version: 'ClickHouse',
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -426,8 +433,15 @@ class ClickHouseRepository extends LogRepositoryPort {
         format: 'JSONEachRow'
       });
 
-      for await (const row of result.stream()) {
-        return { healthy: true, count: row.count };
+      try {
+        for await (const row of result.stream()) {
+          return { healthy: true, count: row.count };
+        }
+      } catch (error) {
+        if (error.code === 'ABORT_ERR' || error.name === 'AbortError') {
+          return { healthy: false, error: 'Query aborted' };
+        }
+        throw error;
       }
     } catch (error) {
       return { healthy: false, error: error.message };
