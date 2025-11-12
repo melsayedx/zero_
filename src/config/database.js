@@ -10,45 +10,65 @@ function createClickHouseClient() {
     database: process.env.CLICKHOUSE_DATABASE || 'logs_db',
     username: process.env.CLICKHOUSE_USER || 'default',
     password: process.env.CLICKHOUSE_PASSWORD || '',
-
-    // Connection timeouts optimized for high throughput
-    request_timeout: 60000,           // 60s for large batches
-    connect_timeout: 5000,            // 5s connection timeout
-
-    // Enhanced keep-alive for connection reuse
+    
+    // High-throughput timeouts (100k/sec optimized)
+    request_timeout: 60000,          // 60s for large batches
+    connect_timeout: 10000,          // 10s connection timeout
+    
+    // Connection pooling for high concurrency
+    max_open_connections: 100,       // Maximum concurrent connections
+    max_idle_connections: 50,        // Keep 50 connections ready (50% of max)
     keep_alive: {
       enabled: true,
-      idle_socket_ttl: 60000,         // 60s socket TTL (up from 45s)
+      idle_socket_ttl: 60000,        // 60s keep-alive for connection reuse
     },
-
-    // Optimized async insert settings for 100k/sec
-    clickhouse_settings: {
-      async_insert: 1,                       // Enable async inserts
-      async_insert_busy_timeout_max_ms: 50,  // Allow more time for busy periods
-      async_insert_max_data_size: 5242880,   // 5MB buffer (up from 1MB)
-      wait_for_async_insert: 0,              // Don't wait for completion
-      async_insert_deduplicate: 0,           // Disable deduplication for speed
-
-      // Additional performance settings
-      max_threads: 8,                        // Allow parallel processing
-      max_insert_threads: 8,                 // Parallel insert threads
-      max_memory_usage: 1073741824,          // 1GB memory limit
-      max_memory_usage_for_user: 858993459,  // 850MB user memory
-
-      // Query optimization
-      max_result_rows: 10000,                // Limit result sets
-      max_result_bytes: 104857600,           // 100MB result limit
-      read_overflow_mode: 'break',           // Break on overflow
-    },
-
-    // Connection pooling for high concurrency
-    max_open_connections: 50,          // Increased from default 10
-    max_idle_connections: 30,          // Increased from 20
-
-    // Compression settings
+    
+    // Compression for network efficiency
     compression: {
-      request: true,                   // Compress requests
-      response: true                   // Compress responses
+      request: true,                 // Compress outgoing data
+      response: true                 // Compress incoming data
+    },
+    
+    // ClickHouse settings optimized for 100k/sec write throughput
+    clickhouse_settings: {
+      // === Async Insert Settings (Core for High Throughput) ===
+      async_insert: 1,                              // Enable async inserts
+      wait_for_async_insert: 0,                     // Don't wait for ACK (max speed)
+      async_insert_deduplicate: 0,                  // Disable dedup (faster)
+      
+      // Batch accumulation settings
+      async_insert_busy_timeout_ms: 200,            // Min wait: accumulate for 200ms
+      async_insert_busy_timeout_max_ms: 1000,       // Max wait: flush after 1s
+      async_insert_max_data_size: 10485760,         // 10MB buffer before flush
+      async_insert_threads: 16,                     // Parallel async insert threads
+      
+      // === Write Performance Settings ===
+      max_insert_threads: 8,                        // Parallel insert execution
+      max_insert_block_size: 1048576,               // 1M rows per block
+      min_insert_block_size_rows: 262144,           // 256K rows minimum
+      min_insert_block_size_bytes: 268435456,       // 256MB minimum block size
+      
+      // === Memory & Processing ===
+      max_memory_usage: 10737418240,                // 10GB memory limit per query
+      max_threads: 8,                               // Max threads per query
+      use_uncompressed_cache: 1,                    // Enable cache for faster reads  
+
+      // === Network & Timeout Settings ===
+      max_execution_time: 300,                      // 5 min max query time
+      send_timeout: 300,                            // 5 min send timeout
+      receive_timeout: 300,                         // 5 min receive timeout
+      send_progress_in_http_headers: 0,             // Disable progress updates for performance
+      http_connection_pool_size: 1024,              // Large connection pool on server side
+
+      // === Optimization Flags ===
+      optimize_on_insert: 0,                        // Skip optimization on insert (faster)
+      insert_deduplicate: 0,                        // No deduplication
+      fsync_after_insert: 0,                        // Don't force sync (faster, less durable)
+      
+      // === Format Settings ===
+      input_format_parallel_parsing: 1,             // Parallel parsing of input data
+      max_read_buffer_size: 10485760,               // 10MB read buffer
+
     }
   });
 
