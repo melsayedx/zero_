@@ -1,58 +1,132 @@
 const LogEntry = require('../entities/log-entry');
-const IngestLogPort = require('../ports/ingest-log.port');
+const IngestResult = require('./ingest-result');
 
 /**
  * IngestLog Use Case
- * Core business logic for ingesting a log entry
- * 
+ * Core business logic for ingesting log entries with performance optimization
+ *
  * Architecture:
- * - Implements: IngestLogPort (input port) - what the outside world calls
  * - Depends on: LogRepositoryPort (output port) - what this use case needs
- * 
+ * - Depends on: IngestResult - what this use case returns
+ *
  * This follows the Dependency Inversion Principle and Hexagonal Architecture
  */
-class IngestLogUseCase extends IngestLogPort {
+class IngestLogUseCase {
   constructor(logRepository) {
-    super(); // Call parent constructor
-    
-    if (!logRepository) {
-      throw new Error('LogRepository is required');
+    if (!logRepository  || typeof logRepository.save !== 'function') {
+      throw new Error('LogRepository is required and must implement the save() method');
     }
-    
-    // Validate that the repository implements the port interface
-    if (typeof logRepository.save !== 'function') {
-      throw new Error('LogRepository must implement the save() method from LogRepositoryPort');
-    }
-    
     this.logRepository = logRepository;
   }
 
   /**
-   * Execute the use case
-   * @param {Object} logData - Raw log data
-   * @returns {Promise<Object>} Result with success/failure status
+   * Execute the use case with full validation (default)
+   * @param {Object[]} logsData - Array of raw log data
+   * @returns {Promise<IngestResult>} Result with success/failure status
    */
-  async execute(logData) {
-    try {
-      // Create domain entity (validates data)
-      const logEntry = new LogEntry(logData);
+  async execute(logsData) {
+    return this._executeWithValidation(logsData, { validationMode: 'full' });
+  }
 
-      // Save via repository port
-      const result = await this.logRepository.save(logEntry);
+  /**
+   * Execute with light validation for high-throughput
+   * @param {Object[]} logsData - Array of raw log data
+   * @returns {Promise<IngestResult>} Result with performance metrics
+   */
+  async executeFast(logsData) {
+    return this._executeWithValidation(logsData, { validationMode: 'light' });
+  }
 
-      return {
-        success: true,
-        data: result,
-        message: 'Log entry ingested successfully'
-      };
-    } catch (error) {
-      // Return business-friendly error
-      return {
-        success: false,
-        error: error.message,
-        message: 'Failed to ingest log entry'
-      };
+  /**
+   * Execute with no validation for maximum throughput (trust caller)
+   * @param {Object[]} logsData - Array of raw log data
+   * @returns {Promise<IngestResult>} Result with performance metrics
+   */
+  async executeUnsafe(logsData) {
+    return this._executeWithValidation(logsData, { validationMode: 'skip' });
+  }
+
+  /**
+   * Internal execution with configurable validation
+   * @private
+   */
+  async _executeWithValidation(logsData, options = {}) {
+    const startTime = Date.now();
+    const { validationMode = 'full' } = options;
+
+    // Validate input
+    if (!Array.isArray(logsData) || logsData.length === 0) {
+      throw new Error('Input must be an array of log entries');
     }
+
+    // Choose validation strategy
+    const createEntity = this._getEntityFactory(validationMode);
+
+    // Bulk validation with error collection
+    const { validLogEntries, errors } = this._bulkValidate(logsData, createEntity);
+
+    // If all logs failed validation, return error
+    if (validLogEntries.length === 0) {
+      const errorMessages = errors.map(error => error.error).join(', ');
+      throw new Error(`All log entries failed validation: ${errorMessages}`);
+    }
+
+    // Save via repository port
+    await this.logRepository.save(validLogEntries);
+
+    // Calculate performance metrics
+    const processingTime = Date.now() - startTime;
+    const throughput = (logsData.length / processingTime) * 1000; // logs per second
+
+    // Return detailed result with performance metrics
+    return new IngestResult({
+      accepted: validLogEntries.length,
+      rejected: errors.length,
+      errors: errors.slice(0, 100), // Limit error details to first 100
+      processingTime,
+      throughput,
+      validationMode
+    });
+  }
+
+  /**
+   * Get entity factory based on validation mode
+   * @private
+   */
+  _getEntityFactory(validationMode) {
+    switch (validationMode) {
+      case 'light':
+        return LogEntry.createFast;
+      case 'skip':
+        return LogEntry.createUnsafe;
+      case 'full':
+      default:
+        return (data) => new LogEntry(data);
+    }
+  }
+
+  /**
+   * Bulk validation with efficient error collection
+   * @private
+   */
+  _bulkValidate(logsData, createEntity) {
+    const validLogEntries = [];
+    const errors = [];
+
+    // Use for loop for better performance than forEach/map
+    for (let i = 0; i < logsData.length; i++) {
+      try {
+        validLogEntries.push(createEntity(logsData[i]));
+      } catch (error) {
+        errors.push({
+          index: i,
+          error: error.message,
+          data: logsData[i]
+        });
+      }
+    }
+
+    return { validLogEntries, errors };
   }
 }
 

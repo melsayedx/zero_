@@ -13,6 +13,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./clickhouse-config.xml:/etc/clickhouse-server/config.d/performance.xml
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 10s

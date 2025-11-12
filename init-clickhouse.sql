@@ -19,7 +19,7 @@ RENAME TABLE logs TO logs_old;
 
 CREATE TABLE logs (
     -- Primary ID (UUID)
-    id UUID default generateUUIDv7() CODEC(ZSTD(19)),
+    id UUID DEFAULT generateUUIDv7() CODEC(ZSTD(19)),
     
     -- Application identifier
     app_id LowCardinality(String) CODEC(ZSTD(19)),
@@ -65,56 +65,65 @@ CREATE TABLE logs (
     
     -- Bloom filter indexes for high-cardinality lookups
     INDEX trace_idx trace_id TYPE bloom_filter(0.01) GRANULARITY 3,
-    INDEX user_idx user_id TYPE bloom_filter(0.01) GRANULARITY 3
+    INDEX user_idx user_id TYPE bloom_filter(0.01) GRANULARITY 3,
 
         -- Database-level constraints
     CONSTRAINT check_app_id CHECK length(app_id) > 0 AND length(app_id) <= 32,
     CONSTRAINT check_message CHECK length(message) > 0 AND length(message) <= 2048,
     CONSTRAINT check_source CHECK length(source) > 0 AND length(source) <= 64,
     CONSTRAINT check_level CHECK level IN ('DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'),
-    CONSTRAINT check_timestamp CHECK timestamp >= toDateTime64('2020-01-01 00:00:00', 3)
+    CONSTRAINT check_timestamp CHECK timestamp >= toDateTime64('2020-01-01 00:00:00', 3),
     CONSTRAINT check_environment CHECK length(environment) > 0 AND length(environment) <= 64,
 
 ) ENGINE = MergeTree()
-
--- =====================================
--- PARTITIONING: Only by time (monthly)
--- =====================================
 PARTITION BY toYYYYMM(timestamp)
+ORDER BY (app_id, timestamp, id)
+TTL timestamp + INTERVAL 90 DAY
+SETTINGS
+    -- Performance optimized settings for 100k/sec ingestion
+    index_granularity = 16384,                    -- Larger granularity for faster inserts
+    min_bytes_for_wide_part = 20971520,          -- 20 MB threshold for wide format
+    max_compress_block_size = 2097152,           -- 2 MB compression blocks (larger = faster)
 
--- =====================================
--- ORDERING: Optimized for query patterns
--- =====================================
-ORDER BY (timestamp, app_id)
--- Most queries: WHERE timestamp >= X AND app_id = Y
--- Perfect alignment with this ordering
+    -- Merge optimization for high-throughput scenarios
+    merge_max_block_size = 8192,                  -- Larger merge blocks
+    merge_max_block_size_bytes = 104857600,      -- 100MB merge size limit
 
--- =====================================
--- TTL: Auto-delete old data
--- =====================================
-TTL timestamp + INTERVAL 90 DAY -- Transfer data to new table
+    -- Storage optimization
+    storage_policy = 'default',                   -- Use default storage policy
+    min_bytes_for_compact_part = 10485760,       -- 10MB compact threshold
 
--- =====================================
--- SETTINGS: Performance tuning
--- =====================================
-SETTINGS 
-    index_granularity = 8192,             -- Default, good for most cases
-    min_bytes_for_wide_part = 10485760,   -- 10 MB threshold for wide format
-    max_compress_block_size = 1048576;    -- 1 MB compression blocks
+    -- Write optimization
+    write_ahead_log_max_bytes = 1073741824,      -- 1GB WAL size
+    write_ahead_log_bytes_to_fsync = 4194304,    -- 4MB fsync threshold
+
+    -- Memory settings for merges
+    max_bytes_to_merge_at_max_space_in_pool = 1073741824,  -- 1GB max merge memory
+    max_bytes_to_merge_at_min_space_in_pool = 134217728;   -- 128MB min merge memory
 
 -- Step 3: Migrate data from old table (assign default app_id)
-INSERT INTO logs 
-SELECT 
-    id,
-    'legacy-app' as app_id,  -- Default app_id for existing logs
+INSERT INTO logs(app_id,
     timestamp,
+    observed_timestamp,
     level,
     message,
     source,
+    environment,
     metadata,
     trace_id,
-    user_id,
-    created_at
+    user_id) 
+SELECT 
+    
+    app_id,
+    timestamp,
+    observed_timestamp,
+    level,
+    message,
+    source,
+    environment,
+    metadata,
+    trace_id,
+    user_id
 FROM logs_old;
 
 -- Step 4: Verify migration

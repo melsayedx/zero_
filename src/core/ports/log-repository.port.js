@@ -4,39 +4,60 @@
  */
 class LogRepositoryPort {
   /**
-   * Save a log entry
-   * @param {LogEntry} logEntry - The log entry to save
-   * @returns {Promise<Object>} Result with success status and saved entry
+   * Save multiple log entries in batch (optimized for performance)
+   * @param {LogEntry[]} logEntries - Array of log entries to save
+   * @returns {Promise<Object>} Result with count of saved logs and performance metrics
    */
-  async save(logEntry) {
+  async save(logEntries) {
     throw new Error('Method not implemented: save()');
   }
 
   /**
-   * Save multiple log entries in batch (optimized for performance)
-   * @param {LogEntry[]} logEntries - Array of log entries to save
-   * @returns {Promise<Object>} Result with count of saved logs
+   * Save logs with different validation modes for performance
+   * @param {Object[]} rawLogs - Raw log data
+   * @param {Object} options - Validation options { skipValidation, lightValidation }
+   * @returns {Promise<Object>} Result with metrics
    */
-  async saveBatch(logEntries) {
-    throw new Error('Method not implemented: saveBatch()');
+  async saveBulk(rawLogs, options = {}) {
+    throw new Error('Method not implemented: saveBulk()');
   }
 
   /**
-   * Find logs by app_id
-   * @param {string} appId - The application ID to filter by
-   * @param {number} limit - Maximum number of logs to return (default: 1000)
-   * @returns {Promise<Array>} Array of log entries
+   * Find logs by filter with performance optimization
+   * @param {Object} options
+   * @param {Object} options.filter - Filter conditions
+   * @param {number} options.limit - Maximum number of logs to return (default: 100)
+   * @param {Object} options.cursor - Pagination cursor
+   * @param {Object} options.sort - Sort options { field, order }
+   * @returns {Promise<Object>} { logs, nextCursor, hasMore, queryTime }
    */
-  async findByAppId(appId, limit = 1000) {
-    throw new Error('Method not implemented: findByAppId()');
+  async findBy({ filter = {}, limit = 100, cursor = null, sort = null }) {
+    throw new Error('Method not implemented: findBy()');
   }
 
   /**
-   * Optional: Health check for the repository
-   * @returns {Promise<boolean>} Connection status
+   * Get performance statistics
+   * @returns {Promise<Object>} Performance metrics
+   */
+  async getStats() {
+    throw new Error('Method not implemented: getStats()');
+  }
+
+  /**
+   * Health check for the repository
+   * @returns {Promise<Object>} { healthy, latency, version }
    */
   async healthCheck() {
     throw new Error('Method not implemented: healthCheck()');
+  }
+
+  /**
+   * Bulk health check for multiple operations
+   * @param {string[]} operations - Operations to test
+   * @returns {Promise<Object>} Health status for each operation
+   */
+  async healthCheckBulk(operations = ['read', 'write']) {
+    throw new Error('Method not implemented: healthCheckBulk()');
   }
 }
 

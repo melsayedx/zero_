@@ -2,12 +2,12 @@ const { randomUUID } = require('crypto');
 
 /**
  * LogEntry Domain Entity
- * Represents a log entry with inline validation
+ * Represents a log entry with performance-optimized validation
  */
 class LogEntry {
   // Valid log levels
   static VALID_LEVELS = new Set(['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']);
-  
+
   // Field constraints
   static CONSTRAINTS = {
     app_id: { minLength: 1, maxLength: 100 },
@@ -17,13 +17,15 @@ class LogEntry {
     metadata: { maxSizeBytes: 16384 } // 16KB
   };
 
-  // UUID validation regex (RFC 4122)
+  // Fast UUID validation (simplified for performance)
   static UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  
-  // ISO 8601 date-time validation regex
-  static ISO_DATETIME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/;
 
-  constructor(data) {
+  // Fast ISO datetime validation (simplified for performance)
+  static ISO_DATETIME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+  constructor(data, options = {}) {
+    const { skipValidation = false, lightValidation = false } = options;
+
     // ===== NORMALIZATION =====
     const id = data.id || randomUUID();
     const timestamp = data.timestamp || new Date().toISOString();
@@ -35,6 +37,28 @@ class LogEntry {
     const app_id = data.app_id;
     const message = data.message;
     const source = data.source;
+
+    // ===== SKIP VALIDATION FOR MAXIMUM PERFORMANCE =====
+    if (skipValidation) {
+      // Direct assignment without validation (trust the caller)
+      this.id = id;
+      this.app_id = app_id;
+      this.timestamp = timestamp;
+      this.level = level;
+      this.message = message;
+      this.source = source;
+      this.environment = environment;
+      this.metadata = metadata;
+      this.trace_id = trace_id;
+      this.user_id = user_id;
+      return;
+    }
+
+    // ===== LIGHT VALIDATION FOR HIGH-THROUGHPUT =====
+    if (lightValidation) {
+      this._lightValidate({ id, app_id, timestamp, level, message, source, environment, metadata, trace_id, user_id });
+      return;
+    }
 
     // ===== REQUIRED FIELDS VALIDATION =====
     if (!app_id) throw new Error('Missing required field: app_id');
@@ -151,6 +175,44 @@ class LogEntry {
     this.user_id = user_id;
   }
 
+  /**
+   * Light validation for high-throughput scenarios
+   * @private
+   */
+  _lightValidate({ id, app_id, timestamp, level, message, source, environment, metadata, trace_id, user_id }) {
+    // Fast required field checks
+    if (!app_id || !message || !level || !source) {
+      throw new Error('Missing required fields: app_id, message, level, source');
+    }
+
+    // Fast length checks (no regex)
+    if (app_id.length > 100 || message.length > 10000 || source.length > 64) {
+      throw new Error('Field length exceeded');
+    }
+
+    // Fast level check
+    if (!LogEntry.VALID_LEVELS.has(level)) {
+      throw new Error('Invalid log level');
+    }
+
+    // Fast metadata size check (approximate)
+    if (JSON.stringify(metadata).length > 16384) {
+      throw new Error('Metadata too large');
+    }
+
+    // Assign validated values
+    this.id = id;
+    this.app_id = app_id;
+    this.timestamp = timestamp;
+    this.level = level;
+    this.message = message;
+    this.source = source;
+    this.environment = environment;
+    this.metadata = metadata;
+    this.trace_id = trace_id;
+    this.user_id = user_id;
+  }
+
   // Static factory method for safe creation
   static createSafe(data) {
     try {
@@ -158,6 +220,16 @@ class LogEntry {
     } catch (error) {
       return { success: false, error: error.message, data };
     }
+  }
+
+  // Static factory for high-throughput (light validation)
+  static createFast(data) {
+    return new LogEntry(data, { lightValidation: true });
+  }
+
+  // Static factory for maximum performance (skip validation)
+  static createUnsafe(data) {
+    return new LogEntry(data, { skipValidation: true });
   }
 
   // Convert to plain object for storage
