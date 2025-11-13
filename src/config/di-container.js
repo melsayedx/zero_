@@ -3,6 +3,7 @@ const ClickHouseRepository = require('../adapters/repositories/clickhouse.reposi
 const IngestLogUseCase = require('../core/use-cases/ingest-log.use-case');
 const GetLogsByAppIdUseCase = require('../core/use-cases/get-logs-by-app-id.use-case');
 const { IngestLogController, HealthCheckController, GetLogsByAppIdController } = require('../adapters/http/controllers');
+const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../adapters/grpc/handlers');
 
 /**
  * Simple Dependency Injection Container
@@ -34,7 +35,7 @@ class DIContainer {
       this.instances.logRepository
     );
 
-    // Controllers
+    // HTTP Controllers
     this.instances.ingestLogController = new IngestLogController(
       this.instances.ingestLogUseCase
     );
@@ -44,6 +45,19 @@ class DIContainer {
     );
 
     this.instances.getLogsByAppIdController = new GetLogsByAppIdController(
+      this.instances.getLogsByAppIdUseCase
+    );
+
+    // gRPC Handlers
+    this.instances.ingestLogsHandler = new IngestLogsHandler(
+      this.instances.ingestLogUseCase
+    );
+
+    this.instances.healthCheckHandler = new HealthCheckHandler(
+      this.instances.logRepository
+    );
+
+    this.instances.getLogsByAppIdHandler = new GetLogsByAppIdHandler(
       this.instances.getLogsByAppIdUseCase
     );
   }
@@ -61,7 +75,7 @@ class DIContainer {
   }
 
   /**
-   * Get all controllers
+   * Get all HTTP controllers
    * @returns {Object} Controllers object
    */
   getControllers() {
@@ -69,6 +83,18 @@ class DIContainer {
       ingestLogController: this.get('ingestLogController'),
       healthCheckController: this.get('healthCheckController'),
       getLogsByAppIdController: this.get('getLogsByAppIdController')
+    };
+  }
+
+  /**
+   * Get all gRPC handlers
+   * @returns {Object} Handlers object
+   */
+  getHandlers() {
+    return {
+      ingestLogsHandler: this.get('ingestLogsHandler'),
+      healthCheckHandler: this.get('healthCheckHandler'),
+      getLogsByAppIdHandler: this.get('getLogsByAppIdHandler')
     };
   }
 

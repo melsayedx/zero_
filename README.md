@@ -6,7 +6,7 @@ A minimal, production-ready log ingestion platform built with clean hexagonal ar
 
 - ✅ **Clean Architecture**: Hexagonal (Ports & Adapters) design
 - ✅ **Fast Storage**: ClickHouse for high-performance time-series data
-- ✅ **Simple API**: Single REST endpoint for log ingestion
+- ✅ **Dual Protocol Support**: Both HTTP REST and gRPC APIs
 - ✅ **Docker Ready**: Zero-config local development with Docker Compose
 - ✅ **Production Ready**: Graceful shutdown, error handling, and health checks
 
@@ -20,8 +20,10 @@ src/
 │   └── ports/              # Interfaces for adapters
 ├── adapters/               # External Interface Implementations
 │   ├── http/              # Express REST API
+│   ├── grpc/              # gRPC API
 │   └── repositories/      # Database implementations
-└── config/                 # Configuration & DI
+├── config/                 # Configuration & DI
+└── proto/                  # Protocol Buffer definitions
 ```
 
 ### Architecture Principles
@@ -50,6 +52,7 @@ Create a `.env` file (or copy from `.env.example`):
 
 ```env
 PORT=3000
+GRPC_PORT=50051
 NODE_ENV=development
 
 CLICKHOUSE_HOST=http://localhost:8123
@@ -78,11 +81,17 @@ npm run dev
 npm start
 ```
 
-The server will start on `http://localhost:3000`
+The servers will start on:
+- HTTP: `http://localhost:3000`
+- gRPC: `0.0.0.0:50051`
 
 ## API Usage
 
-### Health Check
+You can use either HTTP REST or gRPC to interact with the platform.
+
+### HTTP REST API
+
+#### Health Check
 
 ```bash
 curl http://localhost:3000/health
@@ -97,7 +106,7 @@ curl http://localhost:3000/health
 }
 ```
 
-### Ingest Log Entry
+#### Ingest Log Entry
 
 ```bash
 curl -X POST http://localhost:3000/api/logs \
@@ -143,6 +152,211 @@ curl -X POST http://localhost:3000/api/logs \
   "message": "Failed to ingest log entry",
   "error": "Level must be one of: debug, info, warn, error, fatal"
 }
+```
+
+### gRPC API
+
+The platform provides a gRPC service defined in `proto/logs.proto` with three methods: `IngestLogs`, `GetLogsByAppId`, and `HealthCheck`.
+
+#### Using grpcurl (Command Line)
+
+Install grpcurl:
+```bash
+# macOS
+brew install grpcurl
+
+# Linux
+go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+```
+
+##### Health Check
+
+```bash
+grpcurl -plaintext localhost:50051 logs.LogService/HealthCheck
+```
+
+**Response:**
+```json
+{
+  "healthy": true,
+  "message": "Service is healthy",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "latency_ms": 2.5
+}
+```
+
+##### Ingest Logs
+
+```bash
+grpcurl -plaintext -d '{
+  "logs": [
+    {
+      "app_id": "api-service",
+      "level": "error",
+      "message": "Database connection failed",
+      "timestamp": "2024-01-15T10:30:00.000Z",
+      "metadata": {
+        "environment": "production",
+        "region": "us-east-1"
+      }
+    }
+  ]
+}' localhost:50051 logs.LogService/IngestLogs
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Log data accepted",
+  "accepted": 1,
+  "rejected": 0,
+  "processing_time_ms": 12.5,
+  "throughput": 80
+}
+```
+
+##### Get Logs by App ID
+
+```bash
+grpcurl -plaintext -d '{
+  "app_id": "api-service",
+  "limit": 100
+}' localhost:50051 logs.LogService/GetLogsByAppId
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Retrieved 10 log entries for app_id: api-service",
+  "count": 10,
+  "logs": [
+    {
+      "app_id": "api-service",
+      "level": "error",
+      "message": "Database connection failed",
+      "timestamp": "2024-01-15T10:30:00.000Z",
+      "metadata": {
+        "environment": "production"
+      }
+    }
+  ],
+  "has_more": false,
+  "query_time_ms": 5.2
+}
+```
+
+#### Using Node.js gRPC Client
+
+```javascript
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
+
+// Load proto file
+const packageDefinition = protoLoader.loadSync('proto/logs.proto', {
+  keepCase: true,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true
+});
+
+const logsProto = grpc.loadPackageDefinition(packageDefinition).logs;
+
+// Create client
+const client = new logsProto.LogService(
+  'localhost:50051',
+  grpc.credentials.createInsecure()
+);
+
+// Ingest logs
+client.IngestLogs({
+  logs: [
+    {
+      app_id: 'api-service',
+      level: 'error',
+      message: 'Database connection failed',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        environment: 'production',
+        region: 'us-east-1'
+      }
+    }
+  ]
+}, (error, response) => {
+  if (error) {
+    console.error('Error:', error);
+  } else {
+    console.log('Response:', response);
+  }
+});
+
+// Get logs
+client.GetLogsByAppId({
+  app_id: 'api-service',
+  limit: 100
+}, (error, response) => {
+  if (error) {
+    console.error('Error:', error);
+  } else {
+    console.log('Logs:', response.logs);
+  }
+});
+```
+
+#### Using Python gRPC Client
+
+First, install dependencies and generate Python code:
+
+```bash
+pip install grpcio grpcio-tools
+
+# Generate Python code from proto
+python -m grpc_tools.protoc -I./proto --python_out=. --grpc_python_out=. ./proto/logs.proto
+```
+
+Then use the client:
+
+```python
+import grpc
+import logs_pb2
+import logs_pb2_grpc
+from datetime import datetime
+
+# Create channel and stub
+channel = grpc.insecure_channel('localhost:50051')
+stub = logs_pb2_grpc.LogServiceStub(channel)
+
+# Ingest logs
+request = logs_pb2.IngestLogsRequest(
+    logs=[
+        logs_pb2.LogEntry(
+            app_id='api-service',
+            level='error',
+            message='Database connection failed',
+            timestamp=datetime.utcnow().isoformat() + 'Z',
+            metadata={
+                'environment': 'production',
+                'region': 'us-east-1'
+            }
+        )
+    ]
+)
+
+response = stub.IngestLogs(request)
+print(f"Success: {response.success}, Accepted: {response.accepted}")
+
+# Get logs
+request = logs_pb2.GetLogsByAppIdRequest(
+    app_id='api-service',
+    limit=100
+)
+
+response = stub.GetLogsByAppId(request)
+print(f"Retrieved {response.count} logs")
+for log in response.logs:
+    print(f"{log.timestamp} [{log.level}] {log.message}")
 ```
 
 ## Log Entry Schema
@@ -211,9 +425,12 @@ log-ingestion-platform/
 │   │   └── ports/              # log-repository.port.js
 │   ├── adapters/
 │   │   ├── http/               # routes.js, controllers.js
+│   │   ├── grpc/               # server.js, handlers.js
 │   │   └── repositories/       # clickhouse.repository.js
 │   ├── config/                  # database.js, di-container.js
-│   └── app.js                   # Express app entry point
+│   └── app.js                   # Application entry point
+├── proto/
+│   └── logs.proto               # gRPC service definitions
 ├── docker-compose.yml
 ├── init-clickhouse.sql
 ├── package.json
@@ -226,8 +443,9 @@ The architecture is designed for easy extension:
 
 1. **New Use Case**: Add to `src/core/use-cases/`
 2. **New Repository**: Implement port in `src/adapters/repositories/`
-3. **New Endpoint**: Add route and controller in `src/adapters/http/`
-4. **Wire Dependencies**: Update `src/config/di-container.js`
+3. **New HTTP Endpoint**: Add route and controller in `src/adapters/http/`
+4. **New gRPC Method**: Update proto file and add handler in `src/adapters/grpc/`
+5. **Wire Dependencies**: Update `src/config/di-container.js`
 
 ### Code Principles
 

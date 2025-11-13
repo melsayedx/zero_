@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const DIContainer = require('./config/di-container');
 const setupRoutes = require('./adapters/http/routes');
+const { setupGrpcServer, shutdownGrpcServer } = require('./adapters/grpc/server');
 const compression = require('compression');
 const helmet = require('helmet');
 
@@ -60,38 +61,55 @@ app.use((err, req, res, next) => {
 });
 
 // Server configuration
-const PORT = process.env.PORT || 3000;
+const HTTP_PORT = process.env.PORT || 3000;
+const GRPC_PORT = process.env.GRPC_PORT || 50051;
 
-// Start server
-const server = app.listen(PORT, () => {
+// Start HTTP server
+const httpServer = app.listen(HTTP_PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║   Log Ingestion Platform - Started Successfully           ║
 ╚═══════════════════════════════════════════════════════════╝
 
-Server running on: http://localhost:${PORT}
+HTTP Server running on: http://localhost:${HTTP_PORT}
+gRPC Server running on: 0.0.0.0:${GRPC_PORT}
 Environment: ${process.env.NODE_ENV || 'development'}
 
-Available endpoints:
+HTTP Endpoints:
   GET  /health             - Health check
   GET  /metrics            - Application metrics (req/sec, uptime, etc)
   POST /api/logs           - Ingest single log entry
   POST /api/logs/batch     - Ingest multiple logs (high-throughput)
   GET  /api/logs/:app_id   - Retrieve logs for a specific app (default: 1000 rows)
 
+gRPC Methods:
+  IngestLogs               - Ingest log entries
+  GetLogsByAppId           - Retrieve logs by app_id
+  HealthCheck              - Health check
+
 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}
 Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}
   `);
 });
 
+// Start gRPC server
+const handlers = container.getHandlers();
+const grpcServer = setupGrpcServer(handlers, GRPC_PORT);
+
 // Graceful shutdown
 const shutdown = async (signal) => {
   console.log(`\n${signal} received. Starting graceful shutdown...`);
   
-  server.close(async () => {
+  // Close HTTP server first
+  httpServer.close(async () => {
     console.log('HTTP server closed.');
     
     try {
+      // Shutdown gRPC server
+      await shutdownGrpcServer(grpcServer);
+      console.log('gRPC server closed.');
+      
+      // Cleanup resources
       await container.cleanup();
       console.log('Resources cleaned up.');
       process.exit(0);
