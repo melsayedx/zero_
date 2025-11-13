@@ -65,7 +65,7 @@ async function testInsert() {
 
     if (result.logs.length > 0) {
       console.log(`   ✅ SUCCESS! Found ${result.logs.length} log(s) in database`);
-      console.log('   Latest log:', result.logs[0].message);
+      console.log('   Latest log:', result.logs[0]);
     } else {
       console.log('   ⚠️  No logs found yet. Run check-clickhouse-data.js for details.');
     }

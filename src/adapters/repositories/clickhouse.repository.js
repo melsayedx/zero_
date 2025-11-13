@@ -1,14 +1,24 @@
 const LogRepositoryPort = require('../../core/ports/log-repository.port');
 const LogEntry = require('../../core/entities/log-entry');
+const BatchBuffer = require('./batch-buffer');
 
 /**
- * ClickHouse Repository with Optimized Performance
+ * ClickHouse Repository with Optimized Performance and Intelligent Batching
  */
 class ClickHouseRepository extends LogRepositoryPort {
-  constructor(clickhouseClient) {
+  constructor(clickhouseClient, options = {}) {
     super();
     this.client = clickhouseClient;
     this.tableName = process.env.CLICKHOUSE_TABLE || 'logs';
+
+    // Initialize intelligent batch buffer
+    // Accumulates logs and flushes in large batches to ClickHouse
+    this.batchBuffer = new BatchBuffer(clickhouseClient, {
+      tableName: this.tableName,
+      maxBatchSize: options.maxBatchSize || 10000, // 10K logs per batch
+      maxWaitTime: options.maxWaitTime || 1000,    // 1 second max wait
+      compression: options.compression !== false    // Compression enabled by default
+    });
 
     // Simplified filter configuration for better performance
     this.FILTER_CONFIG = {
@@ -25,9 +35,14 @@ class ClickHouseRepository extends LogRepositoryPort {
   }
 
   /**
-   * Save log entries to ClickHouse
-   * Note: Using async inserts (wait_for_async_insert: 0) for maximum throughput.
-   * Data is queued and written asynchronously by ClickHouse.
+   * Save log entries to ClickHouse using intelligent batch buffer
+   * 
+   * Logs are accumulated in memory and flushed in large batches when:
+   * - Buffer reaches 10,000 logs (default), OR
+   * - 1 second has elapsed since last flush (default)
+   * 
+   * This dramatically reduces ClickHouse server load and improves throughput.
+   * 
    * @param {LogEntry[]} logEntries - The log entry array to save
    */
   async save(logEntries) {
@@ -38,18 +53,49 @@ class ClickHouseRepository extends LogRepositoryPort {
     const values = logEntries.map(logEntry => logEntry.toObject());
     
     try {
-      // Fire-and-forget: ClickHouse queues the data for async insertion
+      // Add to intelligent batch buffer
+      // Buffer will automatically flush when size or time threshold is reached
+      await this.batchBuffer.add(values);
+    } catch (error) {
+      console.error('[ClickHouseRepository] Buffer add error:', {
+        error: error.message,
+        table: this.tableName,
+        recordCount: values.length
+      });
+      throw error;
+    }
+  }
+  
+  /**
+   * Save log entries directly to ClickHouse (bypasses buffer)
+   * Use this for critical logs that need immediate persistence
+   * 
+   * @param {LogEntry[]} logEntries - The log entry array to save immediately
+   */
+  async saveImmediate(logEntries) {
+    if (!Array.isArray(logEntries) || logEntries.length === 0) {
+      throw new Error('logEntries must be a non-empty array');
+    }
+
+    const values = logEntries.map(logEntry => logEntry.toObject());
+    
+    try {
       await this.client.insert({
         table: this.tableName,
         values: values,
-        format: 'JSONEachRow'
+        format: 'JSONEachRow',
+        clickhouse_settings: {
+          async_insert: 1,
+          wait_for_async_insert: 0,
+          enable_http_compression: 1
+        }
       });
     } catch (error) {
-      console.error('ClickHouse insert error:', {
+      console.error('[ClickHouseRepository] Immediate insert error:', {
         error: error.message,
         table: this.tableName,
         recordCount: values.length,
-        sampleRecord: values[0] // Log first record for debugging
+        sampleRecord: values[0]
       });
       throw error;
     }
@@ -318,7 +364,7 @@ class ClickHouseRepository extends LogRepositoryPort {
   }
 
   /**
-   * Get performance statistics
+   * Get performance statistics including batch buffer metrics
    * @returns {Promise<Object>} Performance metrics
    */
   async getStats() {
@@ -351,14 +397,56 @@ class ClickHouseRepository extends LogRepositoryPort {
         }
       }
 
+      // Include batch buffer metrics
+      const bufferMetrics = this.batchBuffer.getMetrics();
+
       return {
         table: this.tableName,
         stats: stats[0] || null,
+        buffer: bufferMetrics,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
-      return { error: error.message, timestamp: new Date().toISOString() };
+      return { 
+        error: error.message, 
+        buffer: this.batchBuffer.getMetrics(),
+        timestamp: new Date().toISOString() 
+      };
     }
+  }
+  
+  /**
+   * Get batch buffer metrics
+   * @returns {Object} Buffer performance metrics
+   */
+  getBufferMetrics() {
+    return this.batchBuffer.getMetrics();
+  }
+  
+  /**
+   * Get batch buffer health
+   * @returns {Object} Buffer health status
+   */
+  getBufferHealth() {
+    return this.batchBuffer.getHealth();
+  }
+  
+  /**
+   * Force flush the buffer (useful for testing or graceful shutdown)
+   * @returns {Promise<Object>} Flush result
+   */
+  async flushBuffer() {
+    return await this.batchBuffer.forceFlush();
+  }
+  
+  /**
+   * Shutdown repository and flush remaining logs
+   * @returns {Promise<void>}
+   */
+  async shutdown() {
+    console.log('[ClickHouseRepository] Shutting down...');
+    await this.batchBuffer.shutdown();
+    console.log('[ClickHouseRepository] Shutdown complete');
   }
 
   /**

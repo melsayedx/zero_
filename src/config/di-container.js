@@ -3,6 +3,7 @@ const ClickHouseRepository = require('../adapters/repositories/clickhouse.reposi
 const IngestLogUseCase = require('../core/use-cases/ingest-log.use-case');
 const GetLogsByAppIdUseCase = require('../core/use-cases/get-logs-by-app-id.use-case');
 const { IngestLogController, HealthCheckController, GetLogsByAppIdController } = require('../adapters/http/controllers');
+const { StatsController } = require('../adapters/http/controllers');
 const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../adapters/grpc/handlers');
 
 /**
@@ -60,6 +61,11 @@ class DIContainer {
     this.instances.getLogsByAppIdHandler = new GetLogsByAppIdHandler(
       this.instances.getLogsByAppIdUseCase
     );
+
+    this.instances.statsController = new StatsController(
+      this.instances.logRepository
+    );
+
   }
 
   /**
@@ -82,7 +88,8 @@ class DIContainer {
     return {
       ingestLogController: this.get('ingestLogController'),
       healthCheckController: this.get('healthCheckController'),
-      getLogsByAppIdController: this.get('getLogsByAppIdController')
+      getLogsByAppIdController: this.get('getLogsByAppIdController'),
+      statsController: this.get('statsController')
     };
   }
 
@@ -100,9 +107,18 @@ class DIContainer {
 
   /**
    * Cleanup resources (useful for graceful shutdown)
+   * Flushes batch buffer and closes connections
    */
   async cleanup() {
+    // First, flush the batch buffer to ensure all logs are saved
+    if (this.instances.logRepository) {
+      console.log('[DIContainer] Flushing log buffer...');
+      await this.instances.logRepository.shutdown();
+    }
+    
+    // Then close ClickHouse connection
     if (this.instances.clickhouseClient) {
+      console.log('[DIContainer] Closing ClickHouse connection...');
       await this.instances.clickhouseClient.close();
     }
   }

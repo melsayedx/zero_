@@ -7,6 +7,11 @@ A minimal, production-ready log ingestion platform built with clean hexagonal ar
 - ✅ **Clean Architecture**: Hexagonal (Ports & Adapters) design
 - ✅ **Fast Storage**: ClickHouse for high-performance time-series data
 - ✅ **Dual Protocol Support**: Both HTTP REST and gRPC APIs
+- ✅ **Simple API**: Single REST endpoint for log ingestion
+- ✅ **Protocol Buffer Support**: Binary format for high-throughput ingestion (40-60% smaller payloads)
+- ✅ **Batch Validation**: Optimized validation algorithm (50-140% faster for typical batch sizes)
+- ✅ **ClickHouse Batch Buffer**: Intelligent batching reduces ClickHouse operations by 99%
+- ✅ **Backward Compatible**: Full JSON support maintained alongside Protocol Buffers
 - ✅ **Docker Ready**: Zero-config local development with Docker Compose
 - ✅ **Production Ready**: Graceful shutdown, error handling, and health checks
 
@@ -87,11 +92,25 @@ The servers will start on:
 
 ## API Usage
 
+<<<<<<< HEAD
 You can use either HTTP REST or gRPC to interact with the platform.
 
 ### HTTP REST API
 
 #### Health Check
+=======
+### Supported Content Types
+
+The API supports three ingestion formats:
+
+1. **JSON** (`application/json`) - Human-readable, backward compatible
+2. **Protocol Buffer Single** (`application/x-protobuf`) - Binary format for single log entry
+3. **Protocol Buffer Batch** (`application/x-protobuf-batch`) - Binary format for batch ingestion
+
+📖 **For detailed Protocol Buffer usage, see [PROTOBUF_GUIDE.md](PROTOBUF_GUIDE.md)**
+
+### Health Check
+>>>>>>> 43736faa238c2bc43f61608b910f192bd17b974a
 
 ```bash
 curl http://localhost:3000/health
@@ -106,22 +125,48 @@ curl http://localhost:3000/health
 }
 ```
 
+<<<<<<< HEAD
 #### Ingest Log Entry
+=======
+### Ingest Log Entry (JSON Format)
+>>>>>>> 43736faa238c2bc43f61608b910f192bd17b974a
 
 ```bash
 curl -X POST http://localhost:3000/api/logs \
   -H "Content-Type: application/json" \
-  -d '{
+  -d '[{
+    "app_id": "my-app",
     "level": "error",
     "message": "Database connection failed",
     "source": "api-service",
+    "environment": "production",
     "metadata": {
-      "environment": "production",
       "region": "us-east-1"
     },
     "trace_id": "abc-123-def-456",
     "user_id": "user-789"
-  }'
+  }]'
+```
+
+### Ingest Log Entry (Protocol Buffer Format)
+
+For high-performance ingestion, use Protocol Buffer format:
+
+```javascript
+// See PROTOBUF_GUIDE.md for complete examples
+const protobuf = require('protobufjs');
+const root = await protobuf.load('proto/log-entry.proto');
+const LogEntry = root.lookupType('logs.LogEntry');
+
+const message = LogEntry.create({
+  appId: 'my-app',
+  level: 3, // ERROR
+  message: 'Database connection failed',
+  source: 'api-service'
+});
+
+const buffer = LogEntry.encode(message).finish();
+// Send buffer with Content-Type: application/x-protobuf
 ```
 
 **Response (Success):**
@@ -412,6 +457,39 @@ SELECT level, count() FROM logs_db.logs GROUP BY level;
 SELECT source, count() FROM logs_db.logs WHERE timestamp > now() - INTERVAL 1 HOUR GROUP BY source;
 ```
 
+## Testing
+
+### Test Scripts
+
+```bash
+# Test JSON format (backward compatibility)
+npm run test:json
+
+# Test Protocol Buffer single entry
+npm run test:protobuf
+
+# Test Protocol Buffer batch
+npm run test:protobuf-batch
+
+# Run all format tests
+npm run test:all
+
+# Performance comparison (Protobuf vs JSON)
+npm run perf:protobuf
+
+# Batch validation integration test
+npm run test:batch-validation
+
+# Batch validation benchmark
+npm run benchmark:batch
+
+# ClickHouse batch buffer test
+npm run test:batch-buffer
+
+# Before vs After comparison (visual demo)
+npm run test:before-after
+```
+
 ## Development
 
 ### Project Structure
@@ -425,16 +503,28 @@ log-ingestion-platform/
 │   │   └── ports/              # log-repository.port.js
 │   ├── adapters/
 │   │   ├── http/               # routes.js, controllers.js
+<<<<<<< HEAD
 │   │   ├── grpc/               # server.js, handlers.js
 │   │   └── repositories/       # clickhouse.repository.js
 │   ├── config/                  # database.js, di-container.js
 │   └── app.js                   # Application entry point
 ├── proto/
 │   └── logs.proto               # gRPC service definitions
+=======
+│   │   │                       # protobuf-parser.js, content-parser.middleware.js
+│   │   └── repositories/       # clickhouse.repository.js
+│   ├── config/                  # database.js, di-container.js
+│   └── app.js                   # Express app entry point
+├── proto/
+│   └── log-entry.proto          # Protocol Buffer schema
+├── test-*.js                    # Test scripts for JSON and Protobuf
+├── performance-test-protobuf.js # Performance comparison
+>>>>>>> 43736faa238c2bc43f61608b910f192bd17b974a
 ├── docker-compose.yml
 ├── init-clickhouse.sql
 ├── package.json
-└── README.md
+├── README.md
+└── PROTOBUF_GUIDE.md           # Detailed Protocol Buffer documentation
 ```
 
 ### Adding New Features
@@ -467,17 +557,96 @@ docker-compose down
 docker-compose down -v
 ```
 
-## Future Enhancements (Not in Phase 1)
+## Performance
+
+### Protocol Buffer Benefits
+
+Protocol Buffer format provides significant performance improvements:
+
+- **40-60% smaller payloads** compared to JSON
+- **Reduced bandwidth usage** for high-throughput scenarios
+- **Faster serialization/deserialization** with binary format
+- **Better throughput** at high request rates (10%+ improvement)
+
+Run the performance comparison test:
+
+```bash
+npm run perf:protobuf
+```
+
+### Batch Validation Optimization
+
+Optimized validation algorithm processes batches much faster:
+
+- **50-140% faster** validation for typical batch sizes (100-10K logs)
+- **Single-pass validation** instead of individual validation per log
+- **Better CPU cache utilization** with sequential memory access
+- **Lower resource usage** - more efficient processing
+
+Run the batch validation benchmark:
+
+```bash
+npm run benchmark:batch
+```
+
+**Performance Results:**
+
+| Batch Size | Throughput Before | Throughput After | Improvement |
+|------------|-------------------|------------------|-------------|
+| 100 logs | 260K logs/sec | 626K logs/sec | **+140%** |
+| 1,000 logs | 901K logs/sec | 1.37M logs/sec | **+53%** |
+| 10,000 logs | 1.11M logs/sec | 2.58M logs/sec | **+132%** |
+
+See `BATCH_VALIDATION_OPTIMIZATION.md` for details.
+
+### ClickHouse Batch Buffer
+
+Intelligent buffering system accumulates logs and flushes in large batches:
+
+- **99% reduction** in ClickHouse INSERT operations
+- **Configurable thresholds**: Flush at 10K logs OR 1 second
+- **Compression enabled** for network efficiency
+- **Graceful shutdown** ensures no data loss
+
+**How it works:**
+```
+100 requests × 100 logs each = 10,000 logs
+→ Buffer accumulates all logs
+→ Single INSERT to ClickHouse (10K logs at once)
+→ 99% fewer operations vs. per-request inserts
+```
+
+Run the batch buffer test:
+
+```bash
+npm run test:batch-buffer
+```
+
+**Configuration:**
+```javascript
+// Adjust via repository constructor options
+maxBatchSize: 10000,  // Flush at 10K logs
+maxWaitTime: 1000,    // OR after 1 second
+compression: true     // Enable compression
+```
+
+**Monitor buffer metrics:**
+```bash
+GET /api/stats
+```
+
+See `CLICKHOUSE_BATCH_OPTIMIZATION.md` for complete documentation.
+
+## Future Enhancements
 
 - [ ] MongoDB integration for dashboards and metadata
-- [ ] Batch processing for high-throughput scenarios
+- [ ] Compression for protobuf payloads (gzip/brotli)
+- [ ] Streaming protobuf for real-time logs
 - [ ] Redis caching layer
 - [ ] Authentication & authorization
 - [ ] Rate limiting
-- [ ] Query API for retrieving logs
 - [ ] Alert system
-- [ ] Schema validation and versioning
-- [ ] Performance monitoring
+- [ ] Performance monitoring and metrics
 
 ## Troubleshooting
 

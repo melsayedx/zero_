@@ -10,7 +10,17 @@
     "cluster:dev": "nodemon cluster.js",
     "cluster:prod": "NODE_ENV=production node cluster.js",
     "monitor": "node cluster-monitor.js",
-    "grpc:example": "node grpc-client-example.js"
+    "grpc:example": "node grpc-client-example.js",
+    "test:json": "node test-json-backward-compatible.js",
+    "test:protobuf": "node test-protobuf-single.js",
+    "test:protobuf-batch": "node test-protobuf-batch.js",
+    "test:all": "./test-all-formats.sh",
+    "test:batch-validation": "node test-batch-validation.js",
+    "test:batch-buffer": "node test-batch-buffer.js",
+    "test:before-after": "node test-clickhouse-before-after.js",
+    "perf:protobuf": "node performance-test-protobuf.js",
+    "benchmark:batch": "node benchmark-batch-validation.js"
+
   },
   "keywords": [
     "logs",
@@ -28,7 +38,8 @@
     "compression": "^1.7.4",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "helmet": "^7.1.0"
+    "helmet": "^7.1.0",
+    "protobufjs": "^7.5.4"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
