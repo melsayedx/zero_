@@ -1,8 +1,8 @@
 -- Migration Script: Add app_id support to existing logs table
 -- Run this if you already have a logs table without app_id
-CREATE DATABASE IF NOT EXISTS logs_db;
+-- CREATE DATABASE IF NOT EXISTS logs_db;
 
-USE logs_db;
+-- USE logs_db;
 
 -- Option 1: Add column to existing table (if possible, but ClickHouse may not support ALTER for ORDER BY)
 -- This will fail if the table structure is incompatible
@@ -10,7 +10,7 @@ USE logs_db;
 
 -- Option 2: Recommended - Create new table with app_id and migrate data
 -- Step 1: Rename old table
-RENAME TABLE logs TO logs_old;
+-- RENAME TABLE logs TO logs_old;
 
 -- Step 2: Create new table with app_id
 -- ============================================

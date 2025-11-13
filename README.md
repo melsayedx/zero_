@@ -262,6 +262,9 @@ npm run benchmark:batch
 
 # ClickHouse batch buffer test
 npm run test:batch-buffer
+
+# Before vs After comparison (visual demo)
+npm run test:before-after
 ```
 
 ## Development

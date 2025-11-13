@@ -16,6 +16,7 @@
     "test:all": "./test-all-formats.sh",
     "test:batch-validation": "node test-batch-validation.js",
     "test:batch-buffer": "node test-batch-buffer.js",
+    "test:before-after": "node test-clickhouse-before-after.js",
     "perf:protobuf": "node performance-test-protobuf.js",
     "benchmark:batch": "node benchmark-batch-validation.js"
   },
