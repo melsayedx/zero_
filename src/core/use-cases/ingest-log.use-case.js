@@ -51,6 +51,28 @@ class IngestLogUseCase extends IngestLogPort {
   }
 
   /**
+   * Execute with worker-thread validation for high-throughput
+   * Uses worker threads to prevent main thread blocking during validation
+   * @param {Object[]} logsData - Array of raw log data
+   * @param {ValidationService} validationService - Worker-based validation service
+   * @returns {Promise<IngestResult>} Result with performance metrics
+   */
+  async executeWithWorkers(logsData, validationService) {
+    return this._executeWithWorkerValidation(logsData, validationService, { validationMode: 'batch' });
+  }
+
+  /**
+   * Execute with fast worker-thread validation for maximum throughput
+   * Uses worker threads with minimal validation checks
+   * @param {Object[]} logsData - Array of raw log data
+   * @param {ValidationService} validationService - Worker-based validation service
+   * @returns {Promise<IngestResult>} Result with performance metrics
+   */
+  async executeFastWithWorkers(logsData, validationService) {
+    return this._executeWithWorkerValidation(logsData, validationService, { validationMode: 'batch-fast' });
+  }
+
+  /**
    * Legacy method - kept for backward compatibility
    * @deprecated Use execute() which now uses batch validation
    */
@@ -99,6 +121,56 @@ class IngestLogUseCase extends IngestLogPort {
       processingTime,
       throughput,
       validationMode
+    });
+  }
+
+  /**
+   * Internal execution with worker-thread validation
+   * @private
+   */
+  async _executeWithWorkerValidation(logsData, validationService, options = {}) {
+    const startTime = Date.now();
+    const { validationMode = 'batch' } = options;
+
+    // Validate input
+    if (!Array.isArray(logsData) || logsData.length === 0) {
+      throw new Error('Input must be an array of log entries');
+    }
+
+    if (!validationService) {
+      throw new Error('ValidationService is required for worker-thread validation');
+    }
+
+    // Use worker-thread validation
+    const validationResult = validationMode === 'batch-fast'
+      ? await LogEntry.validateBatchFastWithWorkers(logsData, validationService)
+      : await LogEntry.validateBatchWithWorkers(logsData, validationService);
+
+    const { validEntries: validLogEntries, errors, processingTime: validationTime, strategy } = validationResult;
+
+    // If all logs failed validation, return error
+    if (validLogEntries.length === 0) {
+      const errorMessages = errors.map(error => error.error).join(', ');
+      throw new Error(`All log entries failed validation: ${errorMessages}`);
+    }
+
+    // Save via repository port
+    await this.logRepository.save(validLogEntries);
+
+    // Calculate performance metrics
+    const totalProcessingTime = Date.now() - startTime;
+    const throughput = (logsData.length / totalProcessingTime) * 1000; // logs per second
+
+    // Return detailed result with performance metrics
+    return new IngestResult({
+      accepted: validLogEntries.length,
+      rejected: errors.length,
+      errors: errors.slice(0, 100), // Limit error details to first 100
+      processingTime: totalProcessingTime,
+      throughput,
+      validationMode: `${validationMode}-workers`,
+      validationStrategy: strategy,
+      validationTime
     });
   }
 

@@ -51,37 +51,45 @@ function ingestLogs() {
   return new Promise((resolve, reject) => {
     console.log('\n=== Ingest Logs ===');
     
+    // Note: id and timestamp are NOT sent - server generates these automatically
     const logs = [
       {
         app_id: 'api-service',
-        level: 'error',
+        level: 'ERROR',
         message: 'Database connection failed',
-        timestamp: new Date().toISOString(),
+        source: 'api-server-01',          // REQUIRED
+        environment: 'production',
         metadata: {
-          environment: 'production',
           region: 'us-east-1',
           error_code: 'DB_CONN_001'
-        }
+        },
+        trace_id: 'trace-' + Math.random().toString(36).substring(7),
+        user_id: ''
       },
       {
         app_id: 'api-service',
-        level: 'info',
+        level: 'INFO',
         message: 'User logged in successfully',
-        timestamp: new Date().toISOString(),
+        source: 'api-server-01',          // REQUIRED
+        environment: 'production',
         metadata: {
-          user_id: 'user-123',
           ip_address: '192.168.1.1'
-        }
+        },
+        trace_id: 'trace-' + Math.random().toString(36).substring(7),
+        user_id: 'user-123'
       },
       {
         app_id: 'payment-service',
-        level: 'warn',
+        level: 'WARN',
         message: 'Payment processing taking longer than expected',
-        timestamp: new Date().toISOString(),
+        source: 'payment-worker-03',      // REQUIRED
+        environment: 'production',
         metadata: {
           transaction_id: 'txn-789',
           duration_ms: '5000'
-        }
+        },
+        trace_id: 'trace-' + Math.random().toString(36).substring(7),
+        user_id: 'user-456'
       }
     ];
 

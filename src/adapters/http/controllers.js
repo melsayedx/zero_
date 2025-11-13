@@ -5,28 +5,29 @@
 
 /**
  * Controller for ingesting log entries
- * 
+ *
  * This is a PRIMARY ADAPTER that depends on the IngestLogPort (input port)
  */
 class IngestLogController {
-  constructor(ingestLogUseCase) {
+  constructor(ingestLogUseCase, validationService = null) {
     if (!ingestLogUseCase) {
       throw new Error('IngestLogUseCase is required');
     }
-    
+
     // Validate that the use case implements the input port interface
     if (typeof ingestLogUseCase.execute !== 'function') {
       throw new Error('IngestLogUseCase must implement the execute() method from IngestLogPort');
     }
-    
+
     this.ingestLogUseCase = ingestLogUseCase;
+    this.validationService = validationService;
   }
 
   /**
    * Handle POST /api/logs request
    * Supports JSON and Protocol Buffer formats
-   * Uses optimized batch validation (50-140% faster for typical batch sizes)
-   * 
+   * Automatically chooses optimal validation strategy based on batch size and configuration
+   *
    * @param {Request} req - Express request
    * @param {Response} res - Express response
    */
@@ -40,23 +41,40 @@ class IngestLogController {
         logData = [logData];
       }
 
-      // Execute use case with optimized batch validation
-      // This validates the entire batch in a single pass (much faster than individual validation)
-      const result = await this.ingestLogUseCase.execute(logData);
+      // Choose validation strategy based on batch size and availability of worker threads
+      let result;
+      const batchSize = logData.length;
+      const useWorkers = this.validationService && (
+        this.validationService.forceWorkerValidation ||
+        (this.validationService.enableWorkerValidation && batchSize >= this.validationService.smallBatchThreshold)
+      );
+
+      if (useWorkers) {
+        // Use worker threads for validation to prevent main thread blocking
+        const isLargeBatch = batchSize >= this.validationService.mediumBatchThreshold;
+        result = isLargeBatch
+          ? await this.ingestLogUseCase.executeFastWithWorkers(logData, this.validationService)
+          : await this.ingestLogUseCase.executeWithWorkers(logData, this.validationService);
+      } else {
+        // Use standard batch validation (main thread)
+        result = await this.ingestLogUseCase.execute(logData);
+      }
 
       if (result.isFullSuccess() || result.isPartialSuccess()) {
         return res.status(202).json({
-          success: true, 
+          success: true,
           message: 'Log data accepted',
           stats: {
             accepted: result.accepted,
             rejected: result.rejected,
-            throughput: `${Math.round(result.throughput)} logs/sec`
+            throughput: `${Math.round(result.throughput)} logs/sec`,
+            validationStrategy: result.validationStrategy || result.validationMode,
+            workerThreads: useWorkers
           }
         });
       } else {
         return res.status(400).json({
-          success: false, 
+          success: false,
           message: 'Invalid log data',
           errors: result.errors.slice(0, 10) // Show first 10 errors
         });
@@ -64,7 +82,7 @@ class IngestLogController {
     } catch (error) {
       console.error('[IngestLogController] Error:', error.message);
       return res.status(500).json({
-        success: false, 
+        success: false,
         message: 'Internal server error',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });

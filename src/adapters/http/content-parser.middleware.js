@@ -13,9 +13,12 @@ const { getProtobufParser } = require('./protobuf-parser');
  * - application/x-protobuf (single entry)
  * - application/x-protobuf-batch (batch of entries)
  * 
+ * Uses worker threads for large protobuf payloads to prevent event loop blocking
+ * 
+ * @param {ValidationService} validationService - Optional validation service for worker-based parsing
  * @returns {Function} Express middleware function
  */
-function createContentParserMiddleware() {
+function createContentParserMiddleware(validationService = null) {
   let protobufParser = null;
 
   // Initialize protobuf parser once
@@ -67,15 +70,29 @@ function createContentParserMiddleware() {
         const isBatch = contentType.includes('batch') || 
                        contentType.includes('application/x-protobuf-batch');
 
-        // Decode protobuf message
-        let decodedData;
-        if (isBatch) {
-          decodedData = protobufParser.decodeBatch(buffer);
-          req.contentFormat = 'protobuf-batch';
+        // Try worker-based decoding for large payloads
+        let decodedData = null;
+        if (validationService) {
+          decodedData = await validationService.decodeProtobuf(buffer, isBatch);
+        }
+
+        // Fallback to main thread if worker not used or failed
+        if (!decodedData) {
+          if (isBatch) {
+            decodedData = protobufParser.decodeBatch(buffer);
+            req.contentFormat = 'protobuf-batch';
+          } else {
+            const singleEntry = protobufParser.decodeSingleEntry(buffer);
+            decodedData = [singleEntry]; // Wrap in array for consistency
+            req.contentFormat = 'protobuf-single';
+          }
         } else {
-          const singleEntry = protobufParser.decodeSingleEntry(buffer);
-          decodedData = [singleEntry]; // Wrap in array for consistency
-          req.contentFormat = 'protobuf-single';
+          // Data decoded by worker
+          req.contentFormat = isBatch ? 'protobuf-batch-worker' : 'protobuf-single-worker';
+          // Ensure array format
+          if (!Array.isArray(decodedData)) {
+            decodedData = [decodedData];
+          }
         }
 
         // Set parsed data as req.body for downstream processing

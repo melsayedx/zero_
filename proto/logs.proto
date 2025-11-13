@@ -16,15 +16,33 @@ service LogService {
 
 // Messages for IngestLogs
 message IngestLogsRequest {
-  repeated LogEntry logs = 1;
+  repeated LogEntryInput logs = 1;
 }
 
-message LogEntry {
+// Input message for ingestion (no id, no timestamp - server generates these)
+message LogEntryInput {
   string app_id = 1;
   string level = 2;
   string message = 3;
-  string timestamp = 4;
-  map<string, string> metadata = 5;
+  string source = 4;            // REQUIRED: Source of the log (e.g., "api-server", "worker-1")
+  string environment = 5;       // Optional: Environment (defaults to "prod")
+  map<string, string> metadata = 6;
+  string trace_id = 7;          // Optional: Distributed tracing ID
+  string user_id = 8;           // Optional: User ID
+}
+
+// Output message for queries (includes id and timestamp)
+message LogEntry {
+  string id = 1;                // Server-generated UUID
+  string app_id = 2;
+  string level = 3;
+  string message = 4;
+  string source = 5;
+  string timestamp = 6;         // Server-generated timestamp
+  string environment = 7;
+  map<string, string> metadata = 8;
+  string trace_id = 9;
+  string user_id = 10;
 }
 
 message IngestLogsResponse {

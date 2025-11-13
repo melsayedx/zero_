@@ -40,17 +40,17 @@ function createClickHouseClient() {
       async_insert_busy_timeout_ms: 200,            // Min wait: accumulate for 200ms
       async_insert_busy_timeout_max_ms: 1000,       // Max wait: flush after 1s
       async_insert_max_data_size: 10485760,         // 10MB buffer before flush
-      async_insert_threads: 8,                     // Parallel async insert threads
+      async_insert_threads: process.env.ASYNC_INSERT_THREADS || 8,                     // Parallel async insert threads
       
       // === Write Performance Settings ===
-      max_insert_threads: 8,                        // Parallel insert execution
+      max_insert_threads: process.env.MAX_INSERT_THREADS || 8,                        // Parallel insert execution
       max_insert_block_size: 1048576,               // 1M rows per block
       min_insert_block_size_rows: 262144,           // 256K rows minimum
       min_insert_block_size_bytes: 268435456,       // 256MB minimum block size
       
       // === Memory & Processing ===
       max_memory_usage: 10737418240,                // 10GB memory limit per query
-      max_threads: 8,                               // Max threads per query
+      max_threads: process.env.MAX_THREADS || 8,                               // Max threads per query
       use_uncompressed_cache: 1,                    // Enable cache for faster reads  
 
       // === Network & Timeout Settings ===

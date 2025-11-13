@@ -5,11 +5,12 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
+    "start:cluster": "node cluster.js",
+    "start:cluster:dev": "node cluster.js --workers 4",
     "dev": "nodemon src/app.js",
     "cluster": "node cluster.js",
     "cluster:dev": "nodemon cluster.js",
     "cluster:prod": "NODE_ENV=production node cluster.js",
-    "monitor": "node cluster-monitor.js",
     "grpc:example": "node grpc-client-example.js",
     "test:json": "node test-json-backward-compatible.js",
     "test:protobuf": "node test-protobuf-single.js",

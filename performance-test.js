@@ -212,7 +212,7 @@ async function runPerformanceTest() {
   const workerPrefix = workerId !== 'standalone' ? `[Worker ${workerId}] ` : '';
   
   console.log('╔═══════════════════════════════════════════════════════════╗');
-  console.log(`║        Log Ingestion Performance Test ${workerPrefix.padStart(16)}║`);
+  console.log(`║        Log Ingestion Performance Test ${workerPrefix.padStart(16)}    ║`);
   console.log('╚═══════════════════════════════════════════════════════════╝\n');
   
   console.log('📊 Test Configuration:');

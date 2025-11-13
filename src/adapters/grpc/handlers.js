@@ -46,13 +46,19 @@ class IngestLogsHandler {
         });
       }
 
-      // Transform gRPC LogEntry to application format
+      // Transform gRPC LogEntryInput to application format
+      // Note: id and timestamp are NOT included - server generates these
       const logsData = logs.map(log => ({
         app_id: log.app_id,
         level: log.level,
         message: log.message,
-        timestamp: log.timestamp,
-        metadata: log.metadata || {}
+        source: log.source || 'grpc-client',  // Required field
+        environment: log.environment,         // Optional
+        metadata: log.metadata || {},
+        trace_id: log.trace_id,              // Optional
+        user_id: log.user_id                 // Optional
+        // timestamp: NOT included - ClickHouse generates with DEFAULT now()
+        // id: NOT included - LogEntry entity generates UUID
       }));
 
       // Execute use case
@@ -185,13 +191,18 @@ class GetLogsByAppIdHandler {
       // Execute use case
       const queryResult = await this.getLogsByAppIdUseCase.execute(app_id, queryLimit);
 
-      // Transform QueryResult to gRPC response
+      // Transform QueryResult to gRPC response (LogEntry with id and timestamp)
       const logs = queryResult.logs.map(log => ({
+        id: log.id,                          // Server-generated UUID
         app_id: log.app_id,
         level: log.level,
         message: log.message,
-        timestamp: log.timestamp,
-        metadata: log.metadata || {}
+        source: log.source,
+        timestamp: log.timestamp,            // Server-generated timestamp
+        environment: log.environment || 'prod',
+        metadata: log.metadata || {},
+        trace_id: log.trace_id || '',
+        user_id: log.user_id || ''
       }));
 
       return callback(null, {

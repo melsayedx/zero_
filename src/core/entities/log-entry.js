@@ -214,6 +214,50 @@ class LogEntry {
   }
 
   /**
+   * Batch validation using worker threads (async)
+   * For high-throughput scenarios where main thread blocking is unacceptable
+   *
+   * @param {Array<Object>} logsDataArray - Array of raw log data objects
+   * @param {ValidationService} validationService - Worker-based validation service
+   * @returns {Promise<Object>} { validEntries: LogEntry[], errors: Array }
+   */
+  static async validateBatchWithWorkers(logsDataArray, validationService) {
+    if (!validationService) {
+      throw new Error('ValidationService is required for worker-based validation');
+    }
+
+    const result = await validationService.validateBatch(logsDataArray, { validationMode: 'batch' });
+    return {
+      validEntries: result.validEntries,
+      errors: result.errors,
+      processingTime: result.processingTime,
+      strategy: result.strategy
+    };
+  }
+
+  /**
+   * Fast batch validation using worker threads (async)
+   * For maximum throughput with minimal validation overhead
+   *
+   * @param {Array<Object>} logsDataArray - Array of raw log data objects
+   * @param {ValidationService} validationService - Worker-based validation service
+   * @returns {Promise<Object>} { validEntries: LogEntry[], errors: Array }
+   */
+  static async validateBatchFastWithWorkers(logsDataArray, validationService) {
+    if (!validationService) {
+      throw new Error('ValidationService is required for worker-based validation');
+    }
+
+    const result = await validationService.validateBatch(logsDataArray, { validationMode: 'batch-fast' });
+    return {
+      validEntries: result.validEntries,
+      errors: result.errors,
+      processingTime: result.processingTime,
+      strategy: result.strategy
+    };
+  }
+
+  /**
    * Batch validation - validates an array of log data in a single pass
    * Much faster than validating individually for batches > 100 logs
    * 
