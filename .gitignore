@@ -6,3 +6,5 @@ dist/
 coverage/
 performance-results/
 *.md
+tools/
+wasm-simd/
