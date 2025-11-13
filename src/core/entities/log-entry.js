@@ -213,6 +213,140 @@ class LogEntry {
     return new LogEntry(data, { skipValidation: true });
   }
 
+  /**
+   * Batch validation - validates an array of log data in a single pass
+   * Much faster than validating individually for batches > 100 logs
+   * 
+   * @param {Array<Object>} logsDataArray - Array of raw log data objects
+   * @returns {Object} { validEntries: LogEntry[], errors: Array }
+   */
+  static validateBatch(logsDataArray) {
+    if (!Array.isArray(logsDataArray)) {
+      throw new Error('validateBatch expects an array of log data');
+    }
+
+    const validEntries = [];
+    const errors = [];
+
+    // Single-pass validation - optimized for performance
+    for (let i = 0; i < logsDataArray.length; i++) {
+      const data = logsDataArray[i];
+      
+      try {
+        // Fast required field checks
+        if (!data.app_id || !data.message || !data.level || !data.source) {
+          throw new Error('Missing required fields: app_id, message, level, source');
+        }
+
+        // Fast type checks
+        if (typeof data.app_id !== 'string' || 
+            typeof data.message !== 'string' || 
+            typeof data.source !== 'string') {
+          throw new Error('app_id, message, and source must be strings');
+        }
+
+        // Fast length checks (no detailed error messages for performance)
+        if (data.app_id.length === 0 || data.app_id.length > 100 ||
+            data.message.length === 0 || data.message.length > 10000 ||
+            data.source.length === 0 || data.source.length > 64) {
+          throw new Error('Field length validation failed');
+        }
+
+        // Fast level check
+        const levelUpper = typeof data.level === 'string' ? data.level.toUpperCase() : null;
+        if (!LogEntry.VALID_LEVELS.has(levelUpper)) {
+          throw new Error('Invalid log level');
+        }
+
+        // Fast metadata check (if provided)
+        const metadata = data.metadata ?? {};
+        if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+          throw new Error('metadata must be an object');
+        }
+        
+        // Quick metadata size check (approximate)
+        if (JSON.stringify(metadata).length > 16384) {
+          throw new Error('Metadata too large');
+        }
+
+        // Environment check (if provided)
+        const environment = data.environment || 'prod';
+        if (typeof environment !== 'string' || environment.length === 0 || environment.length > 32) {
+          throw new Error('Invalid environment');
+        }
+
+        // Optional field type checks
+        if (data.trace_id !== null && data.trace_id !== undefined && typeof data.trace_id !== 'string') {
+          throw new Error('trace_id must be a string');
+        }
+        if (data.user_id !== null && data.user_id !== undefined && typeof data.user_id !== 'string') {
+          throw new Error('user_id must be a string');
+        }
+
+        // Validation passed - create LogEntry with skipValidation for performance
+        validEntries.push(LogEntry.createUnsafe(data));
+
+      } catch (error) {
+        errors.push({
+          index: i,
+          error: error.message,
+          data: data
+        });
+      }
+    }
+
+    return { validEntries, errors };
+  }
+
+  /**
+   * Fast batch validation with even less strict checks
+   * For high-throughput scenarios where you trust the data more
+   * 
+   * @param {Array<Object>} logsDataArray - Array of raw log data objects
+   * @returns {Object} { validEntries: LogEntry[], errors: Array }
+   */
+  static validateBatchFast(logsDataArray) {
+    if (!Array.isArray(logsDataArray)) {
+      throw new Error('validateBatchFast expects an array of log data');
+    }
+
+    const validEntries = [];
+    const errors = [];
+
+    // Ultra-fast validation - minimal checks
+    for (let i = 0; i < logsDataArray.length; i++) {
+      const data = logsDataArray[i];
+      
+      try {
+        // Only check required fields exist and have reasonable lengths
+        if (!data.app_id || !data.message || !data.level || !data.source) {
+          throw new Error('Missing required fields');
+        }
+
+        if (data.app_id.length > 100 || data.message.length > 10000 || data.source.length > 64) {
+          throw new Error('Field length exceeded');
+        }
+
+        const levelUpper = typeof data.level === 'string' ? data.level.toUpperCase() : null;
+        if (!LogEntry.VALID_LEVELS.has(levelUpper)) {
+          throw new Error('Invalid log level');
+        }
+
+        // Create LogEntry with skipValidation
+        validEntries.push(LogEntry.createUnsafe(data));
+
+      } catch (error) {
+        errors.push({
+          index: i,
+          error: error.message,
+          data: data
+        });
+      }
+    }
+
+    return { validEntries, errors };
+  }
+
   // Convert to plain object for storage (insertion only - no timestamp)
   toObject() {
     return {

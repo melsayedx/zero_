@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package logs;
+
+// LogLevel enum matching the ClickHouse Enum8 definition
+enum LogLevel {
+  DEBUG = 0;
+  INFO = 1;
+  WARN = 2;
+  ERROR = 3;
+  FATAL = 4;
+}
+
+// Single log entry
+message LogEntry {
+  string id = 1;                      // UUID (optional - will be generated if empty)
+  string app_id = 2;                  // Application identifier (required)
+  int64 timestamp = 3;                // Unix timestamp in milliseconds (optional - server generates)
+  LogLevel level = 4;                 // Log level (required)
+  string message = 5;                 // Log message (required)
+  string source = 6;                  // Source/host information (required)
+  string environment = 7;             // Environment (optional - defaults to 'prod')
+  map<string, string> metadata = 8;  // Metadata as key-value pairs
+  string trace_id = 9;                // Trace ID for correlation (optional)
+  string user_id = 10;                // User ID (optional)
+}
+
+// Batch of log entries for efficient bulk ingestion
+message LogEntryBatch {
+  repeated LogEntry entries = 1;
+}

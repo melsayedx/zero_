@@ -11,6 +11,9 @@ function setupRoutes(controllers) {
   // Health check endpoint
   router.get('/health', async (req, res) => await controllers.healthCheckController.handle(req, res));
 
+  // Stats endpoint (includes batch buffer metrics)
+  router.get('/api/stats', async (req, res) => await controllers.statsController.handle(req, res));
+
   // Log ingestion endpoints
   router.post('/api/logs', async (req, res) => await controllers.ingestLogController.handle(req, res));
   
