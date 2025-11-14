@@ -200,14 +200,32 @@ class GetLogsByAppIdController {
  * Controller for retrieving batch buffer and system stats
  */
 class StatsController {
-  constructor(logRepository) {
+  constructor(logRepository, optimizedIngestService = null, validationService = null, bufferPool = null) {
     this.logRepository = logRepository;
+    this.optimizedIngestService = optimizedIngestService;
+    this.validationService = validationService;
+    this.bufferPool = bufferPool;
   }
 
   async handle(req, res) {
     try {
       // Get ClickHouse stats and buffer metrics
       const stats = await this.logRepository.getStats();
+      
+      // Add optimized ingest service stats
+      if (this.optimizedIngestService) {
+        stats.optimizations = this.optimizedIngestService.getStats();
+      }
+      
+      // Add validation service stats
+      if (this.validationService) {
+        stats.workerPool = this.validationService.getStats();
+      }
+      
+      // Add buffer pool stats
+      if (this.bufferPool) {
+        stats.bufferPool = this.bufferPool.getStats();
+      }
       
       return res.status(200).json({
         success: true,

@@ -8,3 +8,8 @@ performance-results/
 *.md
 tools/
 wasm-simd/
+# SSL Certificates
+certs/
+
+# Caddy configuration
+config/Caddyfile

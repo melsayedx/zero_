@@ -13,7 +13,7 @@ const cluster = require('cluster');
  * Supports both standalone and cluster modes
  */
 async function createApp(options = {}) {
-  const { clusterMode = false, workerId = null } = options;
+  const { clusterMode = false, workerId = null, skipListen = false } = options;
   
   // Initialize DI Container
   const container = new DIContainer();
@@ -81,8 +81,14 @@ async function createApp(options = {}) {
   const HTTP_PORT = process.env.PORT || 3000;
   const GRPC_PORT = process.env.GRPC_PORT || 50051;
 
-  // Start HTTP server
-  const httpServer = app.listen(HTTP_PORT, () => {
+  // Start HTTP server (unless skipListen is true)
+  let httpServer;
+  if (skipListen) {
+    // Don't start the server, just return the app
+    // (Used by HTTP/2 and HTTP/3 implementations)
+    httpServer = null;
+  } else {
+    httpServer = app.listen(HTTP_PORT, () => {
     if (clusterMode) {
       console.log(`[Worker ${workerId}] HTTP server listening on port ${HTTP_PORT}`);
       console.log(`[Worker ${workerId}] gRPC server listening on port ${GRPC_PORT}`);
@@ -122,12 +128,16 @@ Performance Features:
 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}
 Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}
   `);
-    }
-  });
+      }
+    });
+  }
 
-  // Start gRPC server
-  const handlers = container.getHandlers();
-  const grpcServer = setupGrpcServer(handlers, GRPC_PORT);
+  // Start gRPC server (unless skipListen is true)
+  let grpcServer;
+  if (!skipListen) {
+    const handlers = container.getHandlers();
+    grpcServer = setupGrpcServer(handlers, GRPC_PORT);
+  }
 
   // Return application instance with lifecycle methods
   return {
@@ -153,25 +163,45 @@ Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}
       console.log('Starting graceful shutdown...');
       
       return new Promise((resolve) => {
-        // Close HTTP server
-        httpServer.close(async () => {
-          console.log('HTTP server closed');
-          
-          try {
-            // Shutdown gRPC server
-            await shutdownGrpcServer(grpcServer);
-            console.log('gRPC server closed');
+        // Close HTTP server (if it exists)
+        if (httpServer) {
+          httpServer.close(async () => {
+            console.log('HTTP server closed');
             
-            // Cleanup resources
-            await container.cleanup();
-            console.log('Resources cleaned up');
-            
-            resolve();
-          } catch (error) {
-            console.error('Error during shutdown:', error);
-            resolve();
-          }
-        });
+            try {
+              // Shutdown gRPC server
+              if (grpcServer) {
+                await shutdownGrpcServer(grpcServer);
+                console.log('gRPC server closed');
+              }
+              
+              // Cleanup resources
+              await container.cleanup();
+              console.log('Resources cleaned up');
+              
+              resolve();
+            } catch (error) {
+              console.error('Error during shutdown:', error);
+              resolve();
+            }
+          });
+        } else {
+          // No HTTP server to close
+          (async () => {
+            try {
+              if (grpcServer) {
+                await shutdownGrpcServer(grpcServer);
+                console.log('gRPC server closed');
+              }
+              await container.cleanup();
+              console.log('Resources cleaned up');
+              resolve();
+            } catch (error) {
+              console.error('Error during shutdown:', error);
+              resolve();
+            }
+          })();
+        }
       });
     },
     
@@ -179,7 +209,9 @@ Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}
      * Stop accepting new connections (for graceful restart)
      */
     async stopAcceptingConnections() {
-      httpServer.close(); // Stop accepting, but don't wait
+      if (httpServer) {
+        httpServer.close(); // Stop accepting, but don't wait
+      }
     },
     
     /**

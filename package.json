@@ -5,12 +5,17 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
+    "start:http2": "node src/app-http2.js",
+    "start:http3": "node src/app-http3.js",
     "start:cluster": "node cluster.js",
     "start:cluster:dev": "node cluster.js --workers 4",
     "dev": "nodemon src/app.js",
+    "dev:http2": "nodemon src/app-http2.js",
+    "dev:http3": "nodemon src/app-http3.js",
     "cluster": "node cluster.js",
     "cluster:dev": "nodemon cluster.js",
     "cluster:prod": "NODE_ENV=production node cluster.js",
+    "setup:certs": "bash setup-certs.sh",
     "grpc:example": "node grpc-client-example.js",
     "test:json": "node test-json-backward-compatible.js",
     "test:protobuf": "node test-protobuf-single.js",
@@ -19,6 +24,8 @@
     "test:batch-validation": "node test-batch-validation.js",
     "test:batch-buffer": "node test-batch-buffer.js",
     "test:before-after": "node test-clickhouse-before-after.js",
+    "test:http2": "./run-http2.sh",
+    "test:http3": "./run-http3.sh",
     "perf:protobuf": "node performance-test-protobuf.js",
     "benchmark:batch": "node benchmark-batch-validation.js"
 

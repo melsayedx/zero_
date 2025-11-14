@@ -1,10 +1,12 @@
 /**
  * Protocol Buffer Parser for Log Entries
  * Handles decoding of protobuf messages to JavaScript objects
+ * Now with zero-copy optimizations for better performance
  */
 
 const protobuf = require('protobufjs');
 const path = require('path');
+const { decodeProtobufZeroCopy, createBufferView } = require('../../core/utils/buffer-utils');
 
 // Log level mapping from protobuf enum to string
 const LOG_LEVEL_MAP = {
@@ -53,6 +55,7 @@ class ProtobufParser {
 
   /**
    * Decode a single log entry from protobuf binary format
+   * Uses zero-copy buffer views for better performance
    * @param {Buffer} buffer - Binary protobuf data
    * @returns {Object} Decoded log entry as plain JavaScript object
    */
@@ -62,7 +65,9 @@ class ProtobufParser {
     }
 
     try {
-      const message = this.LogEntry.decode(buffer);
+      // Use zero-copy buffer view instead of copying
+      const view = createBufferView(buffer);
+      const message = this.LogEntry.decode(view);
       const object = this.LogEntry.toObject(message, {
         enums: String,  // Convert enums to strings
         longs: Number,  // Convert longs to numbers
@@ -80,6 +85,7 @@ class ProtobufParser {
 
   /**
    * Decode a batch of log entries from protobuf binary format
+   * Uses zero-copy buffer views for better performance
    * @param {Buffer} buffer - Binary protobuf data
    * @returns {Array<Object>} Array of decoded log entries
    */
@@ -89,7 +95,9 @@ class ProtobufParser {
     }
 
     try {
-      const message = this.LogEntryBatch.decode(buffer);
+      // Use zero-copy buffer view instead of copying
+      const view = createBufferView(buffer);
+      const message = this.LogEntryBatch.decode(view);
       const object = this.LogEntryBatch.toObject(message, {
         enums: String,
         longs: Number,

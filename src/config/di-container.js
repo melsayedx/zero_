@@ -6,6 +6,8 @@ const { IngestLogController, HealthCheckController, GetLogsByAppIdController } =
 const { StatsController } = require('../adapters/http/controllers');
 const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../adapters/grpc/handlers');
 const ValidationService = require('../adapters/workers/validation-service');
+const OptimizedIngestService = require('../core/services/optimized-ingest.service');
+const { BufferPool } = require('../core/utils/buffer-utils');
 
 /**
  * Simple Dependency Injection Container
@@ -22,6 +24,12 @@ class DIContainer {
   initialize() {
     // Database
     this.instances.clickhouseClient = createClickHouseClient();
+
+    // Buffer Pool for zero-copy operations
+    this.instances.bufferPool = new BufferPool({
+      sizes: [1024, 4096, 16384, 65536], // 1KB, 4KB, 16KB, 64KB
+      poolSize: parseInt(process.env.BUFFER_POOL_SIZE) || 100
+    });
 
     // Validation Service (with worker threads)
     this.instances.validationService = new ValidationService({
@@ -49,6 +57,22 @@ class DIContainer {
 
     this.instances.getLogsByAppIdUseCase = new GetLogsByAppIdUseCase(
       this.instances.logRepository
+    );
+
+    // Optimized Ingest Service (with pooling and coalescing)
+    this.instances.optimizedIngestService = new OptimizedIngestService(
+      this.instances.ingestLogUseCase,
+      {
+        // Object pooling configuration
+        poolInitialSize: parseInt(process.env.OBJECT_POOL_INITIAL_SIZE) || 1000,
+        poolMaxSize: parseInt(process.env.OBJECT_POOL_MAX_SIZE) || 10000,
+        usePooling: process.env.USE_OBJECT_POOLING !== 'false',
+        
+        // Request coalescing configuration
+        coalescerMaxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 10, // 10ms
+        coalescerMaxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 100,
+        useCoalescing: process.env.USE_REQUEST_COALESCING !== 'false'
+      }
     );
 
     // HTTP Controllers
@@ -79,7 +103,10 @@ class DIContainer {
     );
 
     this.instances.statsController = new StatsController(
-      this.instances.logRepository
+      this.instances.logRepository,
+      this.instances.optimizedIngestService,
+      this.instances.validationService,
+      this.instances.bufferPool
     );
 
   }
@@ -126,6 +153,12 @@ class DIContainer {
    * Flushes batch buffer, shuts down workers, and closes connections
    */
   async cleanup() {
+    // Flush any pending coalesced requests
+    if (this.instances.optimizedIngestService) {
+      console.log('[DIContainer] Flushing coalesced requests...');
+      await this.instances.optimizedIngestService.flush();
+    }
+    
     // First, flush the batch buffer to ensure all logs are saved
     if (this.instances.logRepository) {
       console.log('[DIContainer] Flushing log buffer...');
