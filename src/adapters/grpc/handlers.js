@@ -93,10 +93,8 @@ class IngestLogsHandler {
         });
       }
 
-<<<<<<< HEAD
       // Transform gRPC LogEntryInput to application format
       // Note: id and timestamp are NOT included - server generates these
-=======
       // Verify app ownership for all unique app_ids in the batch
       const uniqueAppIds = [...new Set(logs.map(log => log.app_id).filter(Boolean))];
       
@@ -116,7 +114,6 @@ class IngestLogsHandler {
       }
 
       // Transform gRPC LogEntry to application format
->>>>>>> mongodb
       const logsData = logs.map(log => ({
         app_id: log.app_id,
         level: log.level,
