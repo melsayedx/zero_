@@ -26,9 +26,10 @@
     "test:before-after": "node test-clickhouse-before-after.js",
     "test:http2": "./run-http2.sh",
     "test:http3": "./run-http3.sh",
+    "test:auth": "node test-auth-flow.js",
+    "test:grpc-auth": "node test-grpc-auth.js",
     "perf:protobuf": "node performance-test-protobuf.js",
     "benchmark:batch": "node benchmark-batch-validation.js"
-
   },
   "keywords": [
     "logs",
@@ -43,10 +44,14 @@
     "@grpc/proto-loader": "^0.7.10",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "argon2": "^0.31.2",
     "compression": "^1.7.4",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.0.3",
+    "nanoid": "^3.3.7",
     "protobufjs": "^7.5.4"
   },
   "devDependencies": {

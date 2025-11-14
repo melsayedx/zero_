@@ -139,6 +139,7 @@ Performance Features:
 
 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}
 Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}
+MongoDB: ${process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform'}
   `);
       }
     });
