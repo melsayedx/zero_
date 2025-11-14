@@ -5,15 +5,18 @@ A minimal, production-ready log ingestion platform built with clean hexagonal ar
 ## Features
 
 - ✅ **Clean Architecture**: Hexagonal (Ports & Adapters) design
+- ✅ **JWT Authentication**: Secure user authentication with MongoDB storage
+- ✅ **Multi-Tenant Support**: App-level data isolation with ownership verification
 - ✅ **Fast Storage**: ClickHouse for high-performance time-series data
-- ✅ **Dual Protocol Support**: Both HTTP REST and gRPC APIs
-- ✅ **Simple API**: Single REST endpoint for log ingestion
+- ✅ **Dual Protocol Support**: Both HTTP REST and gRPC APIs (both authenticated)
+- ✅ **Simple API**: RESTful endpoints for authentication, apps, and logs
 - ✅ **Protocol Buffer Support**: Binary format for high-throughput ingestion (40-60% smaller payloads)
 - ✅ **Batch Validation**: Optimized validation algorithm (50-140% faster for typical batch sizes)
 - ✅ **ClickHouse Batch Buffer**: Intelligent batching reduces ClickHouse operations by 99%
 - ✅ **Backward Compatible**: Full JSON support maintained alongside Protocol Buffers
 - ✅ **Docker Ready**: Zero-config local development with Docker Compose
 - ✅ **Production Ready**: Graceful shutdown, error handling, and health checks
+- ✅ **Secure by Default**: Argon2id password hashing, JWT tokens, app ownership validation
 
 ## Architecture
 
@@ -64,6 +67,13 @@ CLICKHOUSE_HOST=http://localhost:8123
 CLICKHOUSE_DATABASE=logs_db
 CLICKHOUSE_USER=default
 CLICKHOUSE_PASSWORD=
+
+# MongoDB Configuration
+MONGODB_URI=mongodb://mongodb:27017/logs_platform
+
+# JWT Authentication (Generate a strong secret for production!)
+JWT_SECRET=your-super-secret-jwt-key-min-32-chars
+JWT_EXPIRATION=7d
 ```
 
 ### 3. Start Infrastructure
@@ -74,6 +84,7 @@ docker-compose up -d
 
 This will start:
 - **ClickHouse** on port 8123 (HTTP) and 9000 (native)
+- **MongoDB** on port 27017 (for user authentication and app management)
 - Automatically creates the database and schema
 
 ### 4. Start the Application
@@ -89,11 +100,58 @@ npm start
 The servers will start on:
 - HTTP: `http://localhost:3000`
 - gRPC: `0.0.0.0:50051`
+- MongoDB: `mongodb://localhost:27017`
+
+## Authentication
+
+The platform uses **JWT-based authentication** for secure access control. Before ingesting or querying logs, you must:
+
+1. **Register** a user account
+2. **Login** to receive a JWT token
+3. **Create** one or more apps (each gets a unique `app_id`)
+4. **Use the token** in all subsequent requests
+
+### Quick Authentication Example
+
+```bash
+# 1. Register a user
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "SecurePass123"}'
+
+# 2. Login to get JWT token
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "SecurePass123"}'
+# Response: {"success": true, "token": "eyJhbGc...", ...}
+
+# 3. Create an app
+export TOKEN="your-jwt-token-from-login"
+curl -X POST http://localhost:3000/api/apps \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"app_name": "My Production Service"}'
+# Response: {"success": true, "app": {"app_id": "app_xyz...", ...}}
+
+# 4. Ingest logs (app ownership verified automatically)
+export APP_ID="app_xyz..."
+curl -X POST http://localhost:3000/api/logs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "'$APP_ID'",
+    "level": "INFO",
+    "message": "User logged in",
+    "source": "auth-service",
+    "environment": "production"
+  }'
+```
+
+📘 **For detailed authentication documentation, examples, and troubleshooting, see [AUTH_GUIDE.md](AUTH_GUIDE.md)**
 
 ## API Usage
 
-<<<<<<< HEAD
-You can use either HTTP REST or gRPC to interact with the platform.
+You can use either HTTP REST or gRPC to interact with the platform. **All log endpoints require authentication.**
 
 ### HTTP REST API
 

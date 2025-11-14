@@ -1,3 +1,19 @@
+-- ============================================
+-- LOG INGESTION PLATFORM - CLICKHOUSE SCHEMA
+-- ============================================
+-- 
+-- This schema supports MongoDB-based authentication and app-level data isolation.
+-- 
+-- MONGODB INTEGRATION:
+-- - app_id: Maps to MongoDB apps.app_id (globally unique, generated with nanoid)
+-- - user_id: Optional field for logging context (not used for primary filtering)
+-- 
+-- DATA ISOLATION STRATEGY:
+-- - Each MongoDB user can create multiple apps
+-- - Each app has a unique app_id stored in MongoDB
+-- - ClickHouse queries are filtered by app_id after ownership validation
+-- - ORDER BY (app_id, timestamp, id) optimizes queries for app-level isolation
+--
 -- Migration Script: Add app_id support to existing logs table
 -- Run this if you already have a logs table without app_id
 -- CREATE DATABASE IF NOT EXISTS logs_db;

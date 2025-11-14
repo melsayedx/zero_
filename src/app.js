@@ -7,9 +7,9 @@ const compression = require('compression');
 const helmet = require('helmet');
 const { createContentParserMiddleware } = require('./adapters/http/content-parser.middleware');
 
-// Initialize DI Container
+// Initialize DI Container (async)
 const container = new DIContainer();
-container.initialize();
+// Note: We'll await initialization in the server start section below
 
 // Create Express app
 const app = express();
@@ -70,8 +70,19 @@ app.use((err, req, res, next) => {
 const HTTP_PORT = process.env.PORT || 3000;
 const GRPC_PORT = process.env.GRPC_PORT || 50051;
 
-// Start HTTP server
-const httpServer = app.listen(HTTP_PORT, () => {
+// Initialize container and start servers
+let httpServer;
+let grpcServer;
+
+(async () => {
+  try {
+    // Initialize DI container (connects to MongoDB and sets up dependencies)
+    console.log('Initializing dependencies...');
+    await container.initialize();
+    console.log('Dependencies initialized successfully');
+
+    // Start HTTP server
+    httpServer = app.listen(HTTP_PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║   Log Ingestion Platform - Started Successfully           ║
@@ -105,12 +116,19 @@ Performance Features:
 
 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}
 Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}
+MongoDB: ${process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform'}
   `);
-});
+    });
 
-// Start gRPC server
-const handlers = container.getHandlers();
-const grpcServer = setupGrpcServer(handlers, GRPC_PORT);
+    // Start gRPC server
+    const handlers = container.getHandlers();
+    grpcServer = setupGrpcServer(handlers, GRPC_PORT);
+
+  } catch (error) {
+    console.error('Failed to initialize application:', error);
+    process.exit(1);
+  }
+})();
 
 // Graceful shutdown
 const shutdown = async (signal) => {
