@@ -38,9 +38,21 @@ async function createApp(options = {}) {
     }
   }));
 
-  // Parse JSON requests (backward compatible)
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  app.use((req, res, next) => {
+    if (req.method !== 'POST') return next();
+    
+    const contentType = req.get('content-type') || '';
+    req._contentTypeCategory = contentType.includes('protobuf') ? 'protobuf' : 'json';
+    next();
+  });
+  
+  // Conditional JSON parsing (only for JSON requests)
+  app.use((req, res, next) => {
+    if (req._contentTypeCategory === 'json') {
+      return express.json({ limit: '10mb' })(req, res, next);
+    }
+    next();
+  });
 
   // Content parser middleware - handles both JSON and Protocol Buffer formats
   // Pass validation service for worker-based protobuf parsing
