@@ -86,8 +86,9 @@ const SOURCES = {
 function weightedRandom(items) {
   const total = items.reduce((sum, item) => sum + item.weight, 0);
   let random = Math.random() * total;
-  
-  for (const item of items) {
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     random -= item.weight;
     if (random <= 0) {
       return item;

@@ -324,7 +324,8 @@ class ClusterManager extends EventEmitter {
 
     const workerIds = Array.from(this.workers.keys());
 
-    for (const workerId of workerIds) {
+    for (let i = 0; i < workerIds.length; i++) {
+      const workerId = workerIds[i];
       await this.restartWorker(workerId, 'rolling-restart');
       // Wait a bit between restarts to avoid overwhelming the system
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -365,7 +366,8 @@ class ClusterManager extends EventEmitter {
         .sort((a, b) => b.startTime - a.startTime) // Remove newest workers first
         .slice(0, Math.abs(diff));
 
-      for (const workerState of workersToRemove) {
+      for (let i = 0; i < workersToRemove.length; i++) {
+        const workerState = workersToRemove[i];
         await this.shutdownWorker(workerState.id);
       }
     }
@@ -472,8 +474,9 @@ class ClusterManager extends EventEmitter {
    * Broadcast message to all workers
    */
   broadcast(message) {
-    for (const workerState of this.workers.values()) {
-      workerState.worker.send(message);
+    const workerStates = Array.from(this.workers.values());
+    for (let i = 0; i < workerStates.length; i++) {
+      workerStates[i].worker.send(message);
     }
   }
 

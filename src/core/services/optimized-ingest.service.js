@@ -107,7 +107,8 @@ class OptimizedIngestService {
       
       // Distribute results back to individual requests
       let offset = 0;
-      for (const reqData of requestBatch) {
+      for (let i = 0; i < requestBatch.length; i++) {
+        const reqData = requestBatch[i];
         const count = Array.isArray(reqData) ? reqData.length : 1;
         results.push(new IngestResult(true, count));
         offset += count;
@@ -116,7 +117,8 @@ class OptimizedIngestService {
       return results;
     } catch (error) {
       // All requests in batch failed
-      for (const reqData of requestBatch) {
+      for (let i = 0; i < requestBatch.length; i++) {
+        const reqData = requestBatch[i];
         results.push(new IngestResult(false, 0, error.message));
       }
       return results;

@@ -494,7 +494,8 @@ class ClickHouseRepository extends LogRepositoryPort {
   async healthCheckBulk(operations = ['read', 'write']) {
     const results = {};
 
-    for (const op of operations) {
+    for (let i = 0; i < operations.length; i++) {
+      const op = operations[i];
       switch (op) {
         case 'read':
           results.read = await this._testReadHealth();

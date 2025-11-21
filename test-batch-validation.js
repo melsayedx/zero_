@@ -210,7 +210,8 @@ async function runTests() {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
   const batchSizes = [100, 500, 1000];
-  for (const size of batchSizes) {
+  for (let i = 0; i < batchSizes.length; i++) {
+    const size = batchSizes[i];
     console.log(`Testing ${size} logs per batch...`);
     const logs = Array.from({ length: size }, (_, i) => ({
       app_id: 'perf-test',

@@ -104,7 +104,8 @@ function batchPopulateLogEntries(pool, dataArray) {
 function releaseLogEntries(pool, entries) {
   if (!Array.isArray(entries)) return;
   
-  for (const entry of entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
     // Extract the raw data object (not the LogEntry wrapper)
     const rawData = {
       id: entry.id,
@@ -118,7 +119,7 @@ function releaseLogEntries(pool, entries) {
       trace_id: entry.trace_id,
       user_id: entry.user_id
     };
-    
+
     pool.release(rawData);
   }
 }

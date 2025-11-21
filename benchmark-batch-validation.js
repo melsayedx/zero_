@@ -117,7 +117,8 @@ async function runBenchmark() {
   const testSizes = [100, 1000, 10000, 50000];
   const iterations = 5;
 
-  for (const size of testSizes) {
+  for (let i = 0; i < testSizes.length; i++) {
+    const size = testSizes[i];
     console.log(`\n━━━ Testing with ${size.toLocaleString()} logs ━━━`);
     
     // Generate test data

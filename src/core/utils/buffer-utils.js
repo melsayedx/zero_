@@ -43,8 +43,8 @@ function concatBuffersEfficient(buffers) {
   
   // Calculate total length
   let totalLength = 0;
-  for (const buf of buffers) {
-    totalLength += buf.length;
+  for (let i = 0; i < buffers.length; i++) {
+    totalLength += buffers[i].length;
   }
   
   // Single allocation
@@ -52,7 +52,8 @@ function concatBuffersEfficient(buffers) {
   
   // Copy all buffers into result
   let offset = 0;
-  for (const buf of buffers) {
+  for (let i = 0; i < buffers.length; i++) {
+    const buf = buffers[i];
     buf.copy(result, offset);
     offset += buf.length;
   }
@@ -71,11 +72,12 @@ class BufferPool {
     this.pools = new Map();
     
     // Create pools for each size
-    for (const size of this.sizes) {
+    for (let i = 0; i < this.sizes.length; i++) {
+      const size = this.sizes[i];
       this.pools.set(size, []);
-      
+
       // Pre-allocate buffers
-      for (let i = 0; i < this.poolSize; i++) {
+      for (let j = 0; j < this.poolSize; j++) {
         this.pools.get(size).push(Buffer.allocUnsafe(size));
       }
     }
@@ -98,7 +100,8 @@ class BufferPool {
   acquire(size) {
     // Find best matching pool (equal or next larger size)
     let poolSize = null;
-    for (const s of this.sizes) {
+    for (let i = 0; i < this.sizes.length; i++) {
+      const s = this.sizes[i];
       if (s >= size) {
         poolSize = s;
         break;

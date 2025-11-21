@@ -101,9 +101,9 @@ class ObjectPool {
    */
   releaseMany(objects) {
     if (!Array.isArray(objects)) return;
-    
-    for (const obj of objects) {
-      this.release(obj);
+
+    for (let i = 0; i < objects.length; i++) {
+      this.release(objects[i]);
     }
   }
   

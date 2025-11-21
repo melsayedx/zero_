@@ -97,8 +97,9 @@ class IngestLogsHandler {
       // Note: id and timestamp are NOT included - server generates these
       // Verify app ownership for all unique app_ids in the batch
       const uniqueAppIds = [...new Set(logs.map(log => log.app_id).filter(Boolean))];
-      
-      for (const app_id of uniqueAppIds) {
+
+      for (let i = 0; i < uniqueAppIds.length; i++) {
+        const app_id = uniqueAppIds[i];
         if (this.verifyAppAccessUseCase) {
           const accessResult = await this.verifyAppAccessUseCase.execute({
             app_id,

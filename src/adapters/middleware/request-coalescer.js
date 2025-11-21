@@ -127,8 +127,8 @@ class RequestCoalescer {
       console.error('[RequestCoalescer] Batch processing error:', error);
       
       // Reject all pending requests
-      for (const req of batch) {
-        req.reject(error);
+      for (let i = 0; i < batch.length; i++) {
+        batch[i].reject(error);
       }
     } finally {
       this.isFlushing = false;
