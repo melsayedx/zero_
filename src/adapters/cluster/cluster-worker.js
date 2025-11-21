@@ -281,17 +281,17 @@ class ClusterWorker {
 }
 
 /**
- * Helper function to create request counter middleware
+ * Helper function to create request counter hook for Fastify
  */
-function createRequestCounterMiddleware(clusterWorker) {
-  return (req, res, next) => {
+function createRequestCounterHook(clusterWorker) {
+  return (request, reply, done) => {
     clusterWorker.incrementRequestCount();
-    next();
+    done();
   };
 }
 
 module.exports = {
   ClusterWorker,
-  createRequestCounterMiddleware
+  createRequestCounterHook
 };
 

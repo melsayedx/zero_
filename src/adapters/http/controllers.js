@@ -28,12 +28,12 @@ class IngestLogController {
    * Supports JSON and Protocol Buffer formats
    * Automatically chooses optimal validation strategy based on batch size and configuration
    *
-   * @param {Request} req - Express request
-   * @param {Response} res - Express response
+   * @param {FastifyRequest} request - Fastify request
+   * @param {FastifyReply} reply - Fastify reply
    */
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
-      let logData = req.body;
+      let logData = request.body;
 
       // Ensure array format for batch validation
       // Middleware typically provides arrays, but handle single objects as fallback
@@ -61,7 +61,7 @@ class IngestLogController {
       }
 
       if (result.isFullSuccess() || result.isPartialSuccess()) {
-        return res.status(202).json({
+        return reply.code(202).send({
           success: true,
           message: 'Log data accepted',
           stats: {
@@ -73,7 +73,7 @@ class IngestLogController {
           }
         });
       } else {
-        return res.status(400).json({
+        return reply.code(400).send({
           success: false,
           message: 'Invalid log data',
           errors: result.errors.slice(0, 10) // Show first 10 errors
@@ -81,7 +81,7 @@ class IngestLogController {
       }
     } catch (error) {
       console.error('[IngestLogController] Error:', error.message);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Internal server error',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -98,12 +98,12 @@ class HealthCheckController {
     this.logRepository = logRepository;
   }
 
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
       const healthStatus = await this.logRepository.healthCheck();
 
       if (healthStatus.healthy) {
-        return res.status(200).json({
+        return reply.code(200).send({
           success: true,
           message: 'Service is healthy',
           data: {
@@ -114,7 +114,7 @@ class HealthCheckController {
           }
         });
       } else {
-        return res.status(503).json({
+        return reply.code(503).send({
           success: false,
           message: 'Service is unhealthy - database connection failed',
           error: {
@@ -125,7 +125,7 @@ class HealthCheckController {
         });
       }
     } catch (error) {
-      return res.status(503).json({
+      return reply.code(503).send({
         success: false,
         message: 'Service is unhealthy',
         error: {
@@ -158,19 +158,19 @@ class GetLogsByAppIdController {
 
   /**
    * Handle GET /api/logs/:app_id request
-   * @param {Request} req - Express request
-   * @param {Response} res - Express response
+   * @param {FastifyRequest} request - Fastify request
+   * @param {FastifyReply} reply - Fastify reply
    */
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
-      const { app_id } = req.params;
-      const limit = parseInt(req.query.limit) || 1000;
+      const { app_id } = request.params;
+      const limit = parseInt(request.query.limit) || 1000;
 
       // Execute use case
       const queryResult = await this.getLogsByAppIdUseCase.execute(app_id, limit);
 
       // Return successful query result
-      return res.status(200).json({
+      return reply.code(200).send({
         success: true,
         message: `Retrieved ${queryResult.count} log entries for app_id: ${app_id}`,
         data: queryResult.toDetailedReport()
@@ -179,7 +179,7 @@ class GetLogsByAppIdController {
     } catch (error) {
       // Handle validation and business logic errors
       if (error.message.includes('app_id') || error.message.includes('Limit')) {
-        return res.status(400).json({
+        return reply.code(400).send({
           success: false,
           message: 'Invalid request parameters',
           error: error.message
@@ -187,7 +187,7 @@ class GetLogsByAppIdController {
       }
 
       // Handle internal errors
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Internal server error',
         error: error.message
@@ -207,32 +207,32 @@ class StatsController {
     this.bufferPool = bufferPool;
   }
 
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
       // Get ClickHouse stats and buffer metrics
       const stats = await this.logRepository.getStats();
-      
+
       // Add optimized ingest service stats
       if (this.optimizedIngestService) {
         stats.optimizations = this.optimizedIngestService.getStats();
       }
-      
+
       // Add validation service stats
       if (this.validationService) {
         stats.workerPool = this.validationService.getStats();
       }
-      
+
       // Add buffer pool stats
       if (this.bufferPool) {
         stats.bufferPool = this.bufferPool.getStats();
       }
-      
-      return res.status(200).json({
+
+      return reply.code(200).send({
         success: true,
         data: stats
       });
     } catch (error) {
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Failed to retrieve stats',
         error: error.message

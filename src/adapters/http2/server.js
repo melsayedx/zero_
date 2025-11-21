@@ -4,12 +4,12 @@ const path = require('path');
 
 /**
  * HTTP/2 Server Adapter
- * Wraps Express app to work with HTTP/2 (with HTTPS)
+ * Wraps Fastify app to work with HTTP/2 (with HTTPS)
  */
 
 /**
- * Create HTTP/2 server with Express app
- * @param {Express} app - Express application instance
+ * Create HTTP/2 server with Fastify app
+ * @param {FastifyInstance} app - Fastify application instance
  * @param {Object} options - Server options
  * @returns {http2.Http2SecureServer}
  */
@@ -179,7 +179,7 @@ function convertHttp2Headers(http2Headers) {
 }
 
 /**
- * Handle request through Express app
+ * Handle request through Fastify app
  */
 function handleRequest(app, req, res) {
   try {

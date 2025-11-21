@@ -12,10 +12,10 @@ class CreateAppController {
     this.createAppUseCase = createAppUseCase;
   }
 
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
-      const { app_name } = req.body;
-      const { user_id } = req.user; // From auth middleware
+      const { app_name } = request.body;
+      const { user_id } = request.user; // From auth middleware
 
       // Execute create app use case
       const result = await this.createAppUseCase.execute({
@@ -24,13 +24,13 @@ class CreateAppController {
       });
 
       if (!result.success) {
-        return res.status(400).json(result);
+        return reply.code(400).send(result);
       }
 
-      return res.status(201).json(result);
+      return reply.code(201).send(result);
     } catch (error) {
       console.error('[CreateAppController] Error:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Internal server error'
       });
@@ -47,17 +47,17 @@ class ListAppsController {
     this.listUserAppsUseCase = listUserAppsUseCase;
   }
 
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
-      const { user_id } = req.user; // From auth middleware
+      const { user_id } = request.user; // From auth middleware
 
       // Execute list apps use case
       const result = await this.listUserAppsUseCase.execute({ user_id });
 
-      return res.status(200).json(result);
+      return reply.code(200).send(result);
     } catch (error) {
       console.error('[ListAppsController] Error:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Internal server error',
         apps: [],
@@ -76,33 +76,33 @@ class GetAppController {
     this.verifyAppAccessUseCase = verifyAppAccessUseCase;
   }
 
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
-      const { app_id } = req.params;
-      const { user_id } = req.user; // From auth middleware
+      const { app_id } = request.params;
+      const { user_id } = request.user; // From auth middleware
 
       // Verify access and get app
       const result = await this.verifyAppAccessUseCase.execute({ app_id, user_id });
 
       if (!result.success) {
-        return res.status(500).json(result);
+        return reply.code(500).send(result);
       }
 
       if (!result.hasAccess) {
-        return res.status(403).json({
+        return reply.code(403).send({
           success: false,
           message: 'You do not have access to this app'
         });
       }
 
-      return res.status(200).json({
+      return reply.code(200).send({
         success: true,
         app: result.app,
         message: 'App retrieved successfully'
       });
     } catch (error) {
       console.error('[GetAppController] Error:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Internal server error'
       });

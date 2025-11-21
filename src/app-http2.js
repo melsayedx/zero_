@@ -11,7 +11,7 @@ async function startHttp2Server() {
 
   console.log('Starting application with HTTP/2 support...\n');
 
-  // Create the Express app (without starting HTTP/1.1 server)
+  // Create the Fastify app (without starting HTTP/1.1 server)
   // We'll manually handle the HTTP/2 server
   const appInstance = await createApp({ skipListen: true });
 

@@ -77,7 +77,6 @@ class DIContainer {
       this.instances.logRepository
     );
 
-<<<<<<< HEAD
     // Optimized Ingest Service (with pooling and coalescing)
     this.instances.optimizedIngestService = new OptimizedIngestService(
       this.instances.ingestLogUseCase,
@@ -86,7 +85,7 @@ class DIContainer {
         poolInitialSize: parseInt(process.env.OBJECT_POOL_INITIAL_SIZE) || 1000,
         poolMaxSize: parseInt(process.env.OBJECT_POOL_MAX_SIZE) || 10000,
         usePooling: process.env.USE_OBJECT_POOLING !== 'false',
-        
+
         // Request coalescing configuration
         coalescerMaxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 10, // 10ms
         coalescerMaxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 100,
@@ -94,8 +93,6 @@ class DIContainer {
       }
     );
 
-    // HTTP Controllers
-=======
     // Use Cases - Authentication
     this.instances.registerUserUseCase = new RegisterUserUseCase(
       this.instances.userRepository
@@ -118,8 +115,7 @@ class DIContainer {
       this.instances.appRepository
     );
 
-    // HTTP Controllers - Logging
->>>>>>> mongodb
+    // HTTP Controllers
     this.instances.ingestLogController = new IngestLogController(
       this.instances.ingestLogUseCase,
       this.instances.validationService

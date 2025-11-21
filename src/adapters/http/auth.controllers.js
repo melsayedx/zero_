@@ -12,21 +12,21 @@ class RegisterController {
     this.registerUserUseCase = registerUserUseCase;
   }
 
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
-      const { email, password } = req.body;
+      const { email, password } = request.body;
 
       // Execute registration use case
       const result = await this.registerUserUseCase.execute({ email, password });
 
       if (!result.success) {
-        return res.status(400).json(result);
+        return reply.code(400).send(result);
       }
 
-      return res.status(201).json(result);
+      return reply.code(201).send(result);
     } catch (error) {
       console.error('[RegisterController] Error:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Internal server error'
       });
@@ -43,21 +43,21 @@ class LoginController {
     this.loginUserUseCase = loginUserUseCase;
   }
 
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
-      const { email, password } = req.body;
+      const { email, password } = request.body;
 
       // Execute login use case
       const result = await this.loginUserUseCase.execute({ email, password });
 
       if (!result.success) {
-        return res.status(401).json(result);
+        return reply.code(401).send(result);
       }
 
-      return res.status(200).json(result);
+      return reply.code(200).send(result);
     } catch (error) {
       console.error('[LoginController] Error:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Internal server error'
       });
@@ -70,23 +70,23 @@ class LoginController {
  * Returns current authenticated user information
  */
 class MeController {
-  async handle(req, res) {
+  async handle(request, reply) {
     try {
       // User info is already attached by auth middleware
-      if (!req.user) {
-        return res.status(401).json({
+      if (!request.user) {
+        return reply.code(401).send({
           success: false,
           message: 'Not authenticated'
         });
       }
 
-      return res.status(200).json({
+      return reply.code(200).send({
         success: true,
-        user: req.user
+        user: request.user
       });
     } catch (error) {
       console.error('[MeController] Error:', error);
-      return res.status(500).json({
+      return reply.code(500).send({
         success: false,
         message: 'Internal server error'
       });
