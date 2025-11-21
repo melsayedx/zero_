@@ -3,7 +3,7 @@ const fastify = require('fastify');
 const DIContainer = require('./config/di-container');
 const setupRoutes = require('./adapters/http/routes');
 const { setupGrpcServer, shutdownGrpcServer } = require('./adapters/grpc/server');
-const { createContentParserMiddleware } = require('./adapters/http/content-parser.middleware');
+const createContentParserMiddleware = require('./adapters/http/content-parser.middleware');
 const cluster = require('cluster');
 
 /**
@@ -15,7 +15,7 @@ async function createApp(options = {}) {
 
   // Initialize DI Container
   const container = new DIContainer();
-  container.initialize();
+  await container.initialize();
 
   // Create Fastify app
   const app = fastify({

@@ -16,7 +16,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-BASE_URL="${SERVER_URL:-http://192.168.1.27:3000}"
+BASE_URL="${SERVER_URL:-http://localhost:3000}"
 RESULTS_DIR="./performance-results"
 
 # Test Configuration

@@ -32,10 +32,7 @@ class DIContainer {
    * Initialize all dependencies
    */
   async initialize() {
-    // MongoDB Connection
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform';
-    await mongoDBConnection.connect(mongoUri);
-    this.instances.mongoDBConnection = mongoDBConnection;
+    // Skip MongoDB for now - focus on core functionality
 
     // Database Clients
     this.instances.clickhouseClient = createClickHouseClient();
@@ -65,9 +62,6 @@ class DIContainer {
       this.instances.clickhouseClient
     );
 
-    this.instances.userRepository = new UserRepository();
-    this.instances.appRepository = new AppRepository();
-
     // Use Cases - Logging
     this.instances.ingestLogUseCase = new IngestLogUseCase(
       this.instances.logRepository
@@ -93,28 +87,6 @@ class DIContainer {
       }
     );
 
-    // Use Cases - Authentication
-    this.instances.registerUserUseCase = new RegisterUserUseCase(
-      this.instances.userRepository
-    );
-
-    this.instances.loginUserUseCase = new LoginUserUseCase(
-      this.instances.userRepository
-    );
-
-    // Use Cases - Apps
-    this.instances.createAppUseCase = new CreateAppUseCase(
-      this.instances.appRepository
-    );
-
-    this.instances.listUserAppsUseCase = new ListUserAppsUseCase(
-      this.instances.appRepository
-    );
-
-    this.instances.verifyAppAccessUseCase = new VerifyAppAccessUseCase(
-      this.instances.appRepository
-    );
-
     // HTTP Controllers
     this.instances.ingestLogController = new IngestLogController(
       this.instances.ingestLogUseCase,
@@ -127,45 +99,6 @@ class DIContainer {
 
     this.instances.getLogsByAppIdController = new GetLogsByAppIdController(
       this.instances.getLogsByAppIdUseCase
-    );
-
-    // HTTP Controllers - Authentication
-    this.instances.registerController = new RegisterController(
-      this.instances.registerUserUseCase
-    );
-
-    this.instances.loginController = new LoginController(
-      this.instances.loginUserUseCase
-    );
-
-    this.instances.meController = new MeController();
-
-    // HTTP Controllers - Apps
-    this.instances.createAppController = new CreateAppController(
-      this.instances.createAppUseCase
-    );
-
-    this.instances.listAppsController = new ListAppsController(
-      this.instances.listUserAppsUseCase
-    );
-
-    this.instances.getAppController = new GetAppController(
-      this.instances.verifyAppAccessUseCase
-    );
-
-    // gRPC Handlers
-    this.instances.ingestLogsHandler = new IngestLogsHandler(
-      this.instances.ingestLogUseCase,
-      this.instances.verifyAppAccessUseCase
-    );
-
-    this.instances.healthCheckHandler = new HealthCheckHandler(
-      this.instances.logRepository
-    );
-
-    this.instances.getLogsByAppIdHandler = new GetLogsByAppIdHandler(
-      this.instances.getLogsByAppIdUseCase,
-      this.instances.verifyAppAccessUseCase
     );
 
     this.instances.statsController = new StatsController(
@@ -195,24 +128,13 @@ class DIContainer {
    */
   getControllers() {
     return {
-      // Log controllers
-      ingestLogController: this.get('ingestLogController'),
-      healthCheckController: this.get('healthCheckController'),
-      getLogsByAppIdController: this.get('getLogsByAppIdController'),
-      statsController: this.get('statsController'),
-      
-      // Auth controllers
-      registerController: this.get('registerController'),
-      loginController: this.get('loginController'),
-      meController: this.get('meController'),
-      
-      // App controllers
-      createAppController: this.get('createAppController'),
-      listAppsController: this.get('listAppsController'),
-      getAppController: this.get('getAppController'),
-      
-      // Use cases (for middleware/controllers that need them)
-      verifyAppAccessUseCase: this.get('verifyAppAccessUseCase')
+      // Log controllers (core functionality)
+      ingestLogController: this.instances.ingestLogController,
+      healthCheckController: this.instances.healthCheckController,
+      getLogsByAppIdController: this.instances.getLogsByAppIdController,
+      statsController: this.instances.statsController
+
+      // MongoDB-dependent controllers removed for now
     };
   }
 
@@ -222,9 +144,8 @@ class DIContainer {
    */
   getHandlers() {
     return {
-      ingestLogsHandler: this.get('ingestLogsHandler'),
-      healthCheckHandler: this.get('healthCheckHandler'),
-      getLogsByAppIdHandler: this.get('getLogsByAppIdHandler')
+      // Only health check handler for now (doesn't require MongoDB)
+      healthCheckHandler: this.instances.healthCheckHandler
     };
   }
 
