@@ -1,4 +1,4 @@
-const LogRepositoryPort = require('../ports/log-repository.port');
+const LogRepositoryPort = require('../../ports/log-repository.port');
 const QueryResult = require('./query-result');
 
 /**

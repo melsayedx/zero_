@@ -156,7 +156,9 @@ class BufferPool {
       : 0;
     
     const poolCounts = {};
-    for (const [size, pool] of this.pools.entries()) {
+    const poolEntries = Array.from(this.pools.entries());
+    for (let i = 0; i < poolEntries.length; i++) {
+      const [size, pool] = poolEntries[i];
       poolCounts[`${size}B`] = pool.length;
     }
     

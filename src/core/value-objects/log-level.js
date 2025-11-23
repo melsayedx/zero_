@@ -64,7 +64,9 @@ class LogLevel {
    * - Strict enforcement of singleton pattern
    */
   static {
-    for (const level of LogLevel.#VALID_LEVELS) {
+    const validLevelsArray = Array.from(LogLevel.#VALID_LEVELS);
+    for (let i = 0; i < validLevelsArray.length; i++) {
+      const level = validLevelsArray[i];
       // level is already normalized (uppercase), so pass it directly
       LogLevel[level] = new LogLevel(LogLevel.#privateConstructor, level);
     }

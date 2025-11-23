@@ -9,7 +9,7 @@
     "start:http3": "node src/app-http3.js",
     "start:cluster": "node cluster.js",
     "start:cluster:dev": "node cluster.js --workers 4",
-    "dev": "nodemon src/app.js",
+    "dev": "nodemon --max-old-space-size=2048 --max-semi-space-size=64 src/app.js",
     "dev:http2": "nodemon src/app-http2.js",
     "dev:http3": "nodemon src/app-http3.js",
     "cluster": "node cluster.js",
