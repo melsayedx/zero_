@@ -18,7 +18,8 @@ const { CreateAppController, ListAppsController, GetAppController } = require('.
 const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../adapters/grpc/handlers');
 const ValidationService = require('../adapters/workers/validation-service');
 const LogProcessorWorker = require('../adapters/workers/log-processor.worker');
-const OptimizedIngestService = require('../core/services/optimized-ingest.service');
+const OptimizedIngestService = require('../application/services/optimized-ingest.service');
+const RequestCoalescer = require('../adapters/middleware/request-coalescer');
 const { BufferPool } = require('../core/utils/buffer-utils');
 const { getRedisClient, closeRedisConnection } = require('./redis');
 
@@ -186,17 +187,28 @@ class DIContainer {
       this.instances.clickhouseRepository
     );
 
+    // Create request coalescer first with placeholder processor
+    this.instances.requestCoalescer = new RequestCoalescer(
+      () => { /* placeholder */ },
+      {
+        maxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 10,
+        maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 100,
+        enabled: process.env.USE_REQUEST_COALESCING !== 'false'
+      }
+    );
+
+    // Create optimized ingest service with injected coalescer
     this.instances.optimizedIngestService = new OptimizedIngestService(
       this.instances.ingestLogUseCase,
+      this.instances.requestCoalescer,
       {
-        poolInitialSize: parseInt(process.env.OBJECT_POOL_INITIAL_SIZE) || 1000,
-        poolMaxSize: parseInt(process.env.OBJECT_POOL_MAX_SIZE) || 10000,
-        usePooling: process.env.USE_OBJECT_POOLING !== 'false',
-        coalescerMaxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 10,
-        coalescerMaxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 100,
         useCoalescing: process.env.USE_REQUEST_COALESCING !== 'false'
       }
     );
+
+    // Bind the real processor function to the coalescer
+    this.instances.requestCoalescer.processor = (dataArray) =>
+      this.instances.optimizedIngestService.processBatch(dataArray);
 
     console.log('[DIContainer] Core services initialized');
   }
