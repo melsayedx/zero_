@@ -60,7 +60,31 @@ services:
           cpus: '1'
           memory: 512M
 
+  redis:
+    image: redis:alpine
+    container_name: log-platform-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/etc/redis/redis.conf
+    command: redis-server /etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
 volumes:
   clickhouse_data:
   mongodb_data:
+  redis_data:
 
