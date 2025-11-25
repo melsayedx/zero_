@@ -18,10 +18,10 @@ const { CreateAppController, ListAppsController, GetAppController } = require('.
 const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../adapters/grpc/handlers');
 const ValidationService = require('../adapters/workers/validation-service');
 const LogProcessorWorker = require('../adapters/workers/log-processor.worker');
-const OptimizedIngestService = require('../application/services/optimized-ingest.service');
+const LogIngestionService = require('../application/services/optimized-ingest.service');
 const RequestCoalescer = require('../adapters/middleware/request-coalescer');
 const { BufferPool } = require('../core/utils/buffer-utils');
-const { getRedisClient, closeRedisConnection } = require('./redis');
+const { getRedisClient, closeRedisConnection } = require('./redis');  // TODO: Make configs as Class not a function
 
 /**
  * @typedef {Object} DIContainerInstances
@@ -41,7 +41,7 @@ const { getRedisClient, closeRedisConnection } = require('./redis');
  * @property {CreateAppUseCase} [createAppUseCase] - App creation use case
  * @property {ListUserAppsUseCase} [listUserAppsUseCase] - App listing use case
  * @property {VerifyAppAccessUseCase} [verifyAppAccessUseCase] - App access verification use case
- * @property {OptimizedIngestService} optimizedIngestService - Optimized ingest service with pooling and coalescing
+ * @property {LogIngestionService} logIngestionService - Log ingestion service with coalescing and batching
  * @property {IngestLogController} ingestLogController - Log ingestion HTTP controller
  * @property {HealthCheckController} healthCheckController - Health check HTTP controller
  * @property {GetLogsByAppIdController} getLogsByAppIdController - Log retrieval HTTP controller
@@ -189,7 +189,7 @@ class DIContainer {
 
     // Create request coalescer first with placeholder processor
     this.instances.requestCoalescer = new RequestCoalescer(
-      () => { /* placeholder */ },
+      () => { /* placeholder - bound after service creation */ },
       {
         maxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 10,
         maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 100,
@@ -198,17 +198,18 @@ class DIContainer {
     );
 
     // Create optimized ingest service with injected coalescer
-    this.instances.optimizedIngestService = new OptimizedIngestService(
+    this.instances.logIngestionService = new LogIngestionService(
       this.instances.ingestLogUseCase,
       this.instances.requestCoalescer,
       {
-        useCoalescing: process.env.USE_REQUEST_COALESCING !== 'false'
+        useCoalescing: process.env.USE_REQUEST_COALESCING !== 'false',
+        minBatchSize: parseInt(process.env.COALESCER_MIN_BATCH_SIZE) || 50
       }
     );
 
     // Bind the real processor function to the coalescer
     this.instances.requestCoalescer.processor = (dataArray) =>
-      this.instances.optimizedIngestService.processBatch(dataArray);
+      this.instances.logIngestionService.processBatch(dataArray);
 
     console.log('[DIContainer] Core services initialized');
   }

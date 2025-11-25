@@ -55,7 +55,9 @@
  * ```
  */
 
-class RequestCoalescer {
+const CoalescerPort = require('../ports/coalescer.port');
+
+class RequestCoalescer extends CoalescerPort {
 
   /**
    * Create a new RequestCoalescer instance with configurable batching parameters.

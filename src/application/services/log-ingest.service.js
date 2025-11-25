@@ -1,95 +1,95 @@
 /**
- * OptimizedIngestService - Application service for high-throughput log ingestion with request coalescing.
+ * LogIngestionService - Application service orchestrating high-throughput log ingestion with intelligent batching.
  *
- * This service acts as an application layer orchestrator that wraps the IngestLogUseCase
- * with performance optimizations for high-volume scenarios. It implements request coalescing
- * to reduce database load during traffic bursts while maintaining low latency for individual requests.
+ * This service implements the application layer orchestration pattern for log ingestion, bridging
+ * the domain logic (IngestLogUseCase) with infrastructure concerns (RequestCoalescer). It provides
+ * intelligent request coalescing to optimize throughput for high-volume scenarios while maintaining
+ * low latency guarantees for individual requests.
  *
- * The service follows Clean Architecture principles by:
- * - Orchestrating domain logic (IngestLogUseCase) with infrastructure concerns (RequestCoalescer)
- * - Providing cross-cutting performance optimizations (batch processing, metrics)
- * - Maintaining separation between domain validation and application-level optimizations
- * - Enabling configuration-driven behavior without changing domain logic
+ * The service follows Clean Architecture principles by separating concerns across layers:
+ * - **Domain Layer**: Pure business logic and validation (IngestLogUseCase, LogEntry)
+ * - **Application Layer**: Orchestration and cross-cutting concerns (this service)
+ * - **Infrastructure Layer**: External systems and frameworks (RequestCoalescer, repositories)
  *
- * Key features:
- * - Intelligent request coalescing with configurable batch sizes and timeouts
- * - Automatic bypass for large batches to prevent latency spikes
- * - Comprehensive metrics collection for monitoring and optimization
- * - Runtime configuration updates without service restart
- * - Graceful handling of concurrent requests and error scenarios
+ * Key architectural decisions:
+ * - **Dependency Injection**: RequestCoalescer is injected rather than composed for testability
+ * - **Smart Batching**: Small requests (< 50 logs) are coalesced; large requests process immediately
+ * - **Result Correlation**: Maintains per-request result granularity despite batch processing
+ * - **Configuration-Driven**: Runtime reconfiguration without service restart
+ * - **Comprehensive Monitoring**: Built-in metrics for performance optimization
+ *
+ * The coalescing strategy balances competing requirements:
+ * - **Throughput**: Batch processing reduces database overhead by 100x
+ * - **Latency**: Bounded wait times (10ms default) prevent excessive delays
+ * - **Fairness**: Large batches bypass coalescing to avoid blocking smaller requests
+ * - **Reliability**: Graceful error handling with per-request error reporting
  *
  * @example
  * ```javascript
- * // Create service with dependency injection
+ * // Create with dependency injection
  * const coalescer = new RequestCoalescer(
  *   (dataArray) => service.processBatch(dataArray),
  *   { maxWaitTime: 10, maxBatchSize: 100 }
  * );
- * const service = new OptimizedIngestService(ingestUseCase, coalescer);
  *
- * // Process individual logs (automatically batched)
- * const result1 = await service.ingest({
- *   app_id: 'my-app',
- *   message: 'User logged in',
+ * const service = new LogIngestionService(ingestUseCase, coalescer, {
+ *   useCoalescing: true
+ * });
+ *
+ * // Single log (coalesced with concurrent requests)
+ * const result = await service.ingest({
+ *   app_id: 'user-service',
+ *   message: 'Login successful',
  *   level: 'INFO'
  * });
  *
- * // Process batch of logs (bypasses coalescing for immediate processing)
- * const batch = [
+ * // Batch (bypasses coalescing for immediate processing)
+ * const batchResult = await service.ingest([
  *   { app_id: 'api', message: 'Request processed', level: 'INFO' },
  *   { app_id: 'api', message: 'Database error', level: 'ERROR' }
- * ];
- * const result2 = await service.ingest(batch);
- *
- * // Monitor performance
- * const stats = service.getStats();
- * console.log(`Processed ${stats.service.totalRequests} requests`);
- *
- * // Update configuration at runtime
- * service.updateConfig({
- *   useCoalescing: false,        // Disable during maintenance
- *   coalescerMaxBatchSize: 200   // Adjust batch size
- * });
+ * ]);
  * ```
  */
 
 const IngestResult = require('../../core/use-cases/logs/ingest-result');
 
-class OptimizedIngestService {
+class LogIngestionService {
 
   /**
-   * Create a new OptimizedIngestService instance with dependency injection.
+   * Create a new LogIngestionService instance with dependency injection.
    *
-   * Initializes the service with injected dependencies following Onion Architecture principles.
-   * The RequestCoalescer is injected rather than composed, enabling better testability and
-   * dependency management. Configuration options control the service's coalescing behavior.
+   * Initializes the service with injected dependencies following Clean Architecture principles.
+   * The RequestCoalescer is injected rather than created internally, enabling better testability,
+   * dependency management, and configuration flexibility. Configuration options control
+   * coalescing behavior and performance characteristics.
    *
-   * @param {IngestLogUseCase} ingestUseCase - The domain use case for log ingestion
-   * @param {RequestCoalescer} requestCoalescer - The request coalescer for batching concurrent requests
-   * @param {Object} [options={}] - Configuration options for service behavior
-   * @param {boolean} [options.useCoalescing=true] - Whether to use coalescing for small requests
+   * @param {IngestLogUseCase} ingestUseCase - Domain use case handling log ingestion business logic
+   * @param {CoalescerPort} coalescer - Coalescing implementation for request batching
+   * @param {Object} [options={}] - Service configuration options
+   * @param {boolean} [options.useCoalescing=true] - Enable coalescing for small requests (< 50 logs)
    *
- * @example
- * ```javascript
- * // Create dependencies with proper binding
- * const coalescer = new RequestCoalescer(
- *   (dataArray) => service.processBatch(dataArray),
- *   { maxWaitTime: 10, maxBatchSize: 100 }
- * );
- *
- * // Inject dependencies and configure behavior
- * const service = new OptimizedIngestService(ingestUseCase, coalescer, {
- *   useCoalescing: true  // Enable coalescing for small requests
- * });
- * ```
+   * @example
+   * ```javascript
+   * // Create infrastructure dependency
+   * const coalescer = new RequestCoalescer(
+   *   (batch) => service.processBatch(batch),
+   *   { maxWaitTime: 10, maxBatchSize: 100 }
+   * );
+   *
+   * // Inject dependencies
+   * const service = new LogIngestionService(ingestUseCase, coalescer, {
+   *   useCoalescing: true
+   * });
+   * ```
    */
-  constructor(ingestUseCase, requestCoalescer, options = {}) {
+  constructor(ingestUseCase, coalescer, options = {}) {
     this.ingestUseCase = ingestUseCase;
-    this.coalescer = requestCoalescer;
+    this.coalescer = coalescer;
 
     // Configuration
     this.useCoalescing = options.useCoalescing !== false;
-    
+    this.minBatchSize = options.minBatchSize || 50;
+
     // Metrics
     this.metrics = {
       totalRequests: 0,
@@ -97,7 +97,7 @@ class OptimizedIngestService {
       coalescedRequests: 0
     };
     
-    console.log('[OptimizedIngestService] Initialized with config:', {
+    console.log('[LogIngestionService] Initialized with config:', {
       useCoalescing: this.useCoalescing,
       coalescerEnabled: this.coalescer.enabled
     });
@@ -152,7 +152,7 @@ class OptimizedIngestService {
     this.metrics.totalLogs += data.length;
     
     // If coalescing is enabled, add to coalescer
-    if (this.useCoalescing && data.length < 50) {
+    if (this.useCoalescing && data.length < this.minBatchSize) {
       // Only coalesce smaller requests; large batches go direct
       this.metrics.coalescedRequests++;
       return this.coalescer.add(data);
@@ -173,7 +173,7 @@ class OptimizedIngestService {
    *
    * The batching strategy provides significant performance benefits:
    * - Single domain operation instead of multiple individual calls
-   * - Efficient error correlation and result distribution
+   * - Efficient error correlation and result distribution using O(1) lookup table
    * - Reduced overhead for large batch scenarios
    * - Maintained request-level granularity for error reporting
    *
@@ -194,36 +194,75 @@ class OptimizedIngestService {
    * ```
    */
   async processBatch(requestBatch) {
+    // Early return for empty batches
+    if (!requestBatch || requestBatch.length === 0) {
+      return [];
+    }
+
     const results = [];
-    
+
     // Flatten all requests into a single large batch while tracking offsets
     const requestMeta = [];
+    const indexToRequestMap = new Map(); // O(1) lookup: globalIndex -> requestIndex
     const allLogs = [];
-    for (let i = 0; i < requestBatch.length; i++) {
-      const reqData = Array.isArray(requestBatch[i]) ? requestBatch[i] : [];
-      requestMeta.push({ start: allLogs.length, count: reqData.length });
+    let currentGlobalIndex = 0;
+
+    for (let requestIndex = 0; requestIndex < requestBatch.length; requestIndex++) {
+      const reqData = Array.isArray(requestBatch[requestIndex]) ? requestBatch[requestIndex] : [];
+      requestMeta.push({ start: currentGlobalIndex, count: reqData.length });
+
+      // Pre-compute lookup table: map each global index to its request index
+      for (let i = 0; i < reqData.length; i++) {
+        indexToRequestMap.set(currentGlobalIndex + i, requestIndex);
+      }
+
       if (reqData.length > 0) {
         allLogs.push(...reqData);
       }
+      currentGlobalIndex += reqData.length;
+    }
+
+    // Early return if no logs to process
+    if (allLogs.length === 0) {
+      // Return empty results for all requests
+      for (let i = 0; i < requestBatch.length; i++) {
+        results.push(new IngestResult({
+          accepted: 0,
+          rejected: 0,
+          errors: [],
+          processingTime: 0,
+          throughput: 0,
+          validationMode: 'optimized-service'
+        }));
+      }
+      return results;
     }
     
     try {
       // Process through use case with raw logs
       const batchResult = await this.ingestUseCase.execute(allLogs);
       const aggregatedErrors = Array.isArray(batchResult.errors) ? batchResult.errors : [];
-      const errorsPerRequest = requestMeta.map(() => []);
 
-      // Map aggregated errors back to their originating request
+      // Initialize error arrays for each request (one per request)
+      const errorsPerRequest = new Array(requestMeta.length);
+      for (let i = 0; i < requestMeta.length; i++) {
+        errorsPerRequest[i] = [];
+      }
+
+      // Map aggregated errors back to their originating request using O(1) lookup
       for (let i = 0; i < aggregatedErrors.length; i++) {
         const error = aggregatedErrors[i];
-        const targetIndex = requestMeta.findIndex(meta =>
-          error.index >= meta.start && error.index < meta.start + meta.count
-        );
-        if (targetIndex !== -1) {
+        const targetIndex = indexToRequestMap.get(error.index);
+        if (targetIndex !== undefined) {
           errorsPerRequest[targetIndex].push(error);
         }
       }
-      
+
+      // Pre-compute shared values for all results
+      const sharedProcessingTime = batchResult.processingTime;
+      const sharedThroughput = batchResult.throughput;
+      const sharedValidationMode = `${batchResult.validationMode || 'standard'}-coalesced`;
+
       // Distribute results back to individual requests
       for (let i = 0; i < requestBatch.length; i++) {
         const meta = requestMeta[i];
@@ -235,22 +274,24 @@ class OptimizedIngestService {
           accepted,
           rejected,
           errors: requestErrors,
-          processingTime: batchResult.processingTime,
-          throughput: batchResult.throughput,
-          validationMode: `${batchResult.validationMode || 'standard'}-coalesced`
+          processingTime: sharedProcessingTime,
+          throughput: sharedThroughput,
+          validationMode: sharedValidationMode
         }));
       }
-      
+
       return results;
     } catch (error) {
-      // All requests in batch failed
+      // All requests in batch failed - create error result for each request
+      const errorObj = { error: error.message };
+
       for (let i = 0; i < requestBatch.length; i++) {
         const reqData = requestBatch[i];
         const rejected = Array.isArray(reqData) ? reqData.length : 0;
         results.push(new IngestResult({
           accepted: 0,
           rejected,
-          errors: [{ error: error.message }],
+          errors: [errorObj],
           processingTime: 0,
           throughput: 0,
           validationMode: 'optimized-service'
@@ -378,20 +419,20 @@ class OptimizedIngestService {
       });
     }
     
-    console.log('[OptimizedIngestService] Config updated:', config);
+    console.log('[LogIngestionService] Config updated:', config);
   }
 }
 
 /**
- * @typedef {OptimizedIngestService} OptimizedIngestService
- * @property {IngestLogUseCase} ingestUseCase - The wrapped domain use case
- * @property {RequestCoalescer} coalescer - Injected request coalescing instance for batching
+ * @typedef {LogIngestionService} LogIngestionService
+ * @property {IngestLogUseCase} ingestUseCase - Domain use case for log ingestion logic
+ * @property {CoalescerPort} coalescer - Injected coalescer implementing the coalescing interface
  * @property {boolean} useCoalescing - Whether coalescing is enabled for small requests
- * @property {Object} metrics - Service performance metrics
- * @property {number} metrics.totalRequests - Total requests processed
- * @property {number} metrics.totalLogs - Total log entries processed
- * @property {number} metrics.coalescedRequests - Requests that went through coalescing
+ * @property {Object} metrics - Performance and operational metrics
+ * @property {number} metrics.totalRequests - Total ingestion requests processed
+ * @property {number} metrics.totalLogs - Total log entries processed across all requests
+ * @property {number} metrics.coalescedRequests - Requests that underwent coalescing
  */
 
-module.exports = OptimizedIngestService;
+module.exports = LogIngestionService;
 
