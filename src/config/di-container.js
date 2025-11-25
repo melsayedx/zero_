@@ -18,9 +18,11 @@ const { CreateAppController, ListAppsController, GetAppController } = require('.
 const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../adapters/grpc/handlers');
 const ValidationService = require('../adapters/workers/validation-service');
 const LogProcessorWorker = require('../adapters/workers/log-processor.worker');
-const LogIngestionService = require('../application/services/optimized-ingest.service');
+const LogIngestionService = require('../application/services/log-ingest.service');
 const RequestCoalescer = require('../adapters/middleware/request-coalescer');
 const { BufferPool } = require('../core/utils/buffer-utils');
+const BatchBuffer = require('../core/utils/batch-buffer');
+const RedisRetryStrategy = require('../adapters/retry-strategies/redis-retry-strategy');
 const { getRedisClient, closeRedisConnection } = require('./redis');  // TODO: Make configs as Class not a function
 
 /**
@@ -115,8 +117,31 @@ class DIContainer {
   async _initializeRepositories() {
     console.log('[DIContainer] Phase 2: Initializing repositories...');
 
+    // Create retry strategy for the repository
+    this.instances.clickhouseRetryStrategy = new RedisRetryStrategy(
+      this.instances.redisClient,
+      {
+        queueName: 'clickhouse:dead-letter',
+        maxRetries: 3,
+        retryDelay: 1000,
+        enableLogging: process.env.ENABLE_RETRY_LOGGING !== 'false'
+      }
+    );
+
     this.instances.clickhouseRepository = new ClickHouseRepository(
-      this.instances.clickhouseClient
+      this.instances.clickhouseClient,
+      this.instances.redisClient
+    );
+
+    // Inject BatchBuffer with retry strategy into repository
+    this.instances.clickhouseRepository.batchBuffer = new BatchBuffer(
+      this.instances.clickhouseRepository,
+      this.instances.clickhouseRetryStrategy,
+      {
+        maxBatchSize: parseInt(process.env.CLICKHOUSE_BATCH_SIZE) || 25000,
+        maxWaitTime: parseInt(process.env.CLICKHOUSE_BATCH_WAIT_TIME) || 500,
+        enableLogging: process.env.ENABLE_BATCH_BUFFER_LOGGING !== 'false'
+      }
     );
 
     this.instances.redisLogRepository = new RedisLogRepository(this.instances.redisClient, {
@@ -320,6 +345,9 @@ class DIContainer {
     console.log('[DIContainer] Cleaning up repositories...');
     if (this.instances.clickhouseRepository) {
       await this.instances.clickhouseRepository.shutdown();
+    }
+    if (this.instances.clickhouseRetryStrategy) {
+      await this.instances.clickhouseRetryStrategy.shutdown();
     }
   }
 

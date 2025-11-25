@@ -104,6 +104,8 @@ class RequestCoalescer extends CoalescerPort {
  * ```
    */
   constructor(processor, options = {}) {
+    super();
+
     this.processor = processor; // Function to process batch
     
     // Configuration
@@ -266,7 +268,7 @@ class RequestCoalescer extends CoalescerPort {
     } catch (error) {
       console.error('[RequestCoalescer] Batch processing error:', error);
       
-      // Reject all pending requests
+      // Reject all pending requests - Infrastructure error
       for (let i = 0; i < batch.length; i++) {
         batch[i].reject(error);
       }
