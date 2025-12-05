@@ -1,5 +1,5 @@
-const { createClickHouseClient } = require('./clickhouse');
-const mongoDBConnection = require('./mongodb');
+const { createClickHouseClient } = require('../infrastructure/database/clickhouse');
+const mongoDBConnection = require('../infrastructure/database/mongodb');
 const ClickHouseRepository = require('../adapters/repositories/clickhouse.repository');
 const RedisLogRepository = require('../adapters/repositories/redis-log.repository');
 const UserRepository = require('../adapters/repositories/user.repository');
@@ -23,7 +23,7 @@ const RequestCoalescer = require('../adapters/middleware/request-coalescer');
 const { BufferPool } = require('../core/utils/buffer-utils');
 const BatchBuffer = require('../core/utils/batch-buffer');
 const RedisRetryStrategy = require('../adapters/retry-strategies/redis-retry-strategy');
-const { getRedisClient, closeRedisConnection } = require('./redis');  // TODO: Make configs as Class not a function
+const { getRedisClient, closeRedisConnection } = require('../infrastructure/database/redis');  // TODO: Make configs as Class not a function
 
 /**
  * @typedef {Object} DIContainerInstances
