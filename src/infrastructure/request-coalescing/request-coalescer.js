@@ -55,7 +55,7 @@
  * ```
  */
 
-const CoalescerPort = require('../ports/coalescer.port');
+const CoalescerPort = require('../../domain/contracts/coalescer.contract');
 
 class RequestCoalescer extends CoalescerPort {
 
@@ -114,8 +114,9 @@ class RequestCoalescer extends CoalescerPort {
     this.minBatchSize = options.minBatchSize || 2; // Minimum to trigger coalescing
     this.enabled = options.enabled !== false; // Default: enabled
     
-    // State
-    this.pending = [];
+    // State - Pre-allocate array to avoid resizing during runtime
+    this.pending = new Array(this.maxBatchSize);
+    this.pendingIndex = 0; // Track actual number of pending requests
     this.timer = null;
     this.isFlushing = false;
     
@@ -182,14 +183,14 @@ class RequestCoalescer extends CoalescerPort {
     }
     
     return new Promise((resolve, reject) => {
-      this.pending.push({ data, resolve, reject, timestamp: Date.now() });
-      
+      this.pending[this.pendingIndex++] = { data, resolve, reject, timestamp: Date.now() };
+
       // Flush immediately if batch is full
-      if (this.pending.length >= this.maxBatchSize) {
+      if (this.pendingIndex >= this.maxBatchSize) {
         this.flush();
-      } 
+      }
       // Start timer for first request in batch
-      else if (this.pending.length === 1 && !this.timer) {
+      else if (this.pendingIndex === 1 && !this.timer) {
         this.timer = setTimeout(() => this.flush(), this.maxWaitTime);
       }
     });
@@ -221,25 +222,25 @@ class RequestCoalescer extends CoalescerPort {
    */
   async flush() {
     // Prevent concurrent flushes
-    if (this.isFlushing || this.pending.length === 0) {
+    if (this.isFlushing || this.pendingIndex === 0) {
       return;
     }
-    
+
     // Clear timer
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    
+
     this.isFlushing = true;
-    
+
     // Take current batch and reset
-    const batch = this.pending;
-    this.pending = [];
-    
+    const batchSize = this.pendingIndex;
+    const batch = this.pending.slice(0, batchSize); // Only take actual items
+    this.pendingIndex = 0;
+
     // Update metrics
     this.metrics.totalBatches++;
-    const batchSize = batch.length;
     
     if (batchSize > 1) {
       this.metrics.totalCoalesced += batchSize;
@@ -257,18 +258,33 @@ class RequestCoalescer extends CoalescerPort {
     try {
       // Extract data from pending requests
       const dataArray = batch.map(req => req.data);
-      
+
       // Process entire batch at once
       const results = await this.processor(dataArray);
-      
+
       // Distribute results back to individual requests
+      // Handle individual errors vs batch errors
       for (let i = 0; i < batch.length; i++) {
-        batch[i].resolve(results[i]);
+        const result = results[i];
+
+        // Check if this specific result indicates an error
+        if (result && typeof result === 'object' && result.error) {
+          // Individual log validation error - reject this specific request
+          batch[i].reject(new Error(result.error));
+        } else if (result && typeof result === 'object' && result.success === false) {
+          // Individual processing failure
+          const errorMsg = result.error || result.message || 'Processing failed';
+          batch[i].reject(new Error(errorMsg));
+        } else {
+          // Success - resolve with the result
+          batch[i].resolve(result);
+        }
       }
     } catch (error) {
       console.error('[RequestCoalescer] Batch processing error:', error);
-      
-      // Reject all pending requests - Infrastructure error
+
+      // Infrastructure error - reject all pending requests
+      // This happens when the entire batch processor fails (DB connection, etc.)
       for (let i = 0; i < batch.length; i++) {
         batch[i].reject(error);
       }
@@ -276,7 +292,7 @@ class RequestCoalescer extends CoalescerPort {
       this.isFlushing = false;
       
       // If new requests arrived during processing, start timer
-      if (this.pending.length > 0 && !this.timer) {
+      if (this.pendingIndex > 0 && !this.timer) {
         this.timer = setTimeout(() => this.flush(), this.maxWaitTime);
       }
     }
@@ -305,7 +321,7 @@ class RequestCoalescer extends CoalescerPort {
  * ```
    */
   async forceFlush() {
-    if (this.pending.length > 0) {
+    if (this.pendingIndex > 0) {
       await this.flush();
     }
   }
@@ -362,7 +378,7 @@ class RequestCoalescer extends CoalescerPort {
       avgBatchSize: this.metrics.avgBatchSize.toFixed(2),
       maxBatchSeen: this.metrics.maxBatchSeen,
       bypassedRequests: this.metrics.bypassedRequests,
-      currentPending: this.pending.length
+      currentPending: this.pendingIndex
     };
   }
   
@@ -395,7 +411,7 @@ class RequestCoalescer extends CoalescerPort {
     console.log(`[RequestCoalescer] ${enabled ? 'Enabled' : 'Disabled'}`);
     
     // If disabling, flush pending requests
-    if (!enabled && this.pending.length > 0) {
+    if (!enabled && this.pendingIndex > 0) {
       this.flush();
     }
   }

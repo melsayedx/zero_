@@ -38,7 +38,7 @@ class ProtobufParser {
     }
 
     try {
-      const protoPath = path.join(__dirname, '../../../proto/log-entry.proto');
+      const protoPath = path.join(__dirname, '../../../proto/logs/log-entry.proto');
       this.root = await protobuf.load(protoPath);
       
       // Get message types
