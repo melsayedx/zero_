@@ -4,6 +4,7 @@ const DIContainer = require('./infrastructure/config/di-container');
 const setupRoutes = require('./interfaces/http/routes');
 const { setupGrpcServer, shutdownGrpcServer } = require('./interfaces/grpc/server');
 const createContentParserMiddleware = require('./interfaces/http/content-parser.middleware');
+const logsOpenApiConfig = require('./infrastructure/openapi/logs-openapi');
 const cluster = require('cluster');
 
 /**
@@ -32,6 +33,18 @@ async function createApp(options = {}) {
     encodings: ['gzip', 'deflate', 'br'],
     threshold: 1024, // Only compress responses > 1KB
     customTypes: /^text\/|\+json$|\+text$|\+xml$|javascript|css|font|svg/
+  });
+
+  // Register OpenAPI documentation (only for logs API)
+  await app.register(require('@fastify/swagger'), logsOpenApiConfig);
+  await app.register(require('@fastify/swagger-ui'), {
+    routePrefix: '/api/docs',
+    uiConfig: {
+      docExpansion: 'full',
+      deepLinking: false
+    },
+    staticCSP: true,
+    transformStaticCSP: (header) => header
   });
 
   // Content parser middleware - handles both JSON and Protocol Buffer formats

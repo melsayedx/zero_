@@ -88,6 +88,7 @@ async function setupRoutes(fastify, controllers) {
       done();
     },
     schema: {
+      tags: ['logs'],
       body: {
         oneOf: [
           {
@@ -152,6 +153,7 @@ async function setupRoutes(fastify, controllers) {
   // Retrieve logs by app_id (no authentication for now)
   fastify.get('/api/logs/:app_id', {
     schema: {
+      tags: ['logs'],
       params: {
         type: 'object',
         required: ['app_id'],
