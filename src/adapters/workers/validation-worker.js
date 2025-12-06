@@ -20,7 +20,6 @@ const path = require('path');
 // Worker message types
 const MESSAGE_TYPES = {
   VALIDATE_BATCH: 'validate_batch',
-  VALIDATE_BATCH_FAST: 'validate_batch_fast',
   PARSE_JSON: 'parse_json',
   DECODE_PROTOBUF: 'decode_protobuf',
   DECODE_PROTOBUF_BATCH: 'decode_protobuf_batch',
@@ -59,52 +58,36 @@ function sendResponse(requestId, type, data, error = null) {
 /**
  * Validate batch of log entries (full validation)
  */
-function validateBatch(logsDataArray) {
+async function validateBatch(logsDataArray) {
   try {
-    const result = LogEntry.validateBatch(logsDataArray);
+    // Do validation and normalization directly (skip LogEntry instance creation)
+    const validEntries = [];
+    const errors = [];
 
-    // Convert LogEntry objects to plain objects for serialization
-    result.validEntries = result.validEntries.map(entry => ({
-      id: entry.id,
-      app_id: entry.app_id,
-      level: entry.level,
-      message: entry.message,
-      source: entry.source,
-      environment: entry.environment,
-      metadata: entry.metadata,
-      trace_id: entry.trace_id,
-      user_id: entry.user_id
-    }));
+    for (const data of logsDataArray) {
+      try {
+        const normalized = LogEntry.normalize(data);
+        validEntries.push({
+          id: normalized.id ?? null, // Ensure id is null for new entries
+          app_id: normalized.appId.value,
+          level: normalized.level.value,
+          message: normalized.message,
+          source: normalized.source,
+          environment: normalized.environment,
+          metadata: normalized.metadata.value,
+          metadataString: normalized.metadata.string,
+          trace_id: normalized.traceId.value,
+          user_id: normalized.user_id,
+          timestamp: normalized.timestamp ?? null // Ensure timestamp is null for new entries
+        });
+      } catch (error) {
+        errors.push({ data, error: error.message });
+      }
+    }
 
-    return result;
+    return { validEntries, errors };
   } catch (error) {
     throw new Error(`Batch validation failed: ${error.message}`);
-  }
-}
-
-/**
- * Validate batch of log entries (fast validation)
- */
-function validateBatchFast(logsDataArray) {
-  try {
-    const result = LogEntry.validateBatchFast(logsDataArray);
-
-    // Convert LogEntry objects to plain objects for serialization
-    result.validEntries = result.validEntries.map(entry => ({
-      id: entry.id,
-      app_id: entry.app_id,
-      level: entry.level,
-      message: entry.message,
-      source: entry.source,
-      environment: entry.environment,
-      metadata: entry.metadata,
-      trace_id: entry.trace_id,
-      user_id: entry.user_id
-    }));
-
-    return result;
-  } catch (error) {
-    throw new Error(`Fast batch validation failed: ${error.message}`);
   }
 }
 
@@ -261,11 +244,7 @@ parentPort.on('message', async (message) => {
 
     switch (type) {
       case MESSAGE_TYPES.VALIDATE_BATCH:
-        result = validateBatch(data.logsDataArray);
-        break;
-
-      case MESSAGE_TYPES.VALIDATE_BATCH_FAST:
-        result = validateBatchFast(data.logsDataArray);
+        result = await validateBatch(data.logsDataArray);
         break;
 
       case MESSAGE_TYPES.PARSE_JSON:

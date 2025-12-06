@@ -13,3 +13,6 @@ certs/
 
 # Caddy configuration
 config/Caddyfile
+
+
+clickhouse-logs/

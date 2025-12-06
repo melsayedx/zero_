@@ -1,3 +1,5 @@
+ClickHouse native primitive speed not supported in NodeJS
+
 # Log Ingestion Platform
 
 A minimal, production-ready log ingestion platform built with clean hexagonal architecture. Designed for simplicity and extensibility.

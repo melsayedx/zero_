@@ -1,6 +1,16 @@
 const mongoose = require('mongoose');
 const AppRepositoryPort = require('../../core/ports/app-repository.port');
 
+// TODO: This class should not depend on mongoose and should use a more performant database like ClickHouse
+//       Using an init-file.sql like init-clickhouse.sql to create the table and indexes.
+//       The schema validation should be done in the entity class and not in the repository.
+//       Implement the repository interface correctly with only one findBy and if there's a reason for more than one.
+//       I'd like to know why.
+//     
+//       This is also applied to @src/adapters/repositories/user.repository.js
+//       Adding the organization level
+//       User permissions and roles - next phase
+
 /**
  * Mongoose Schema for App
  */

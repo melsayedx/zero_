@@ -1,5 +1,6 @@
-const LogRepositoryPort = require('../../ports/log-repository.port');
 const QueryResult = require('./query-result');
+
+// TODO: Better naming for the use-case
 
 /**
  * GetLogsByAppId Use Case

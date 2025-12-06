@@ -33,36 +33,33 @@ class ValidationService {
   /**
    * Validate batch of logs using optimal strategy
    */
-  async validateBatch(logsDataArray, options = {}) {
-    const { validationMode = 'batch' } = options;
+  async validateBatch(logsDataArray) {
     const batchSize = logsDataArray.length;
 
     // Force main thread for small batches or when workers are disabled
     if (!this.enableWorkerValidation ||
         (!this.forceWorkerValidation && batchSize <= this.smallBatchThreshold)) {
-      return this.validateBatchSync(logsDataArray, validationMode);
+      return await this.validateBatchSync(logsDataArray);
     }
 
     // Use workers for larger batches
     if (batchSize <= this.mediumBatchThreshold) {
       // Single worker
-      return this.validateBatchWithWorker(logsDataArray, validationMode);
+      return this.validateBatchWithWorker(logsDataArray);
     } else {
       // Multiple workers for very large batches
-      return this.validateBatchParallel(logsDataArray, validationMode);
+      return this.validateBatchParallel(logsDataArray);
     }
   }
 
   /**
    * Synchronous validation (main thread)
    */
-  validateBatchSync(logsDataArray, validationMode) {
+  async validateBatchSync(logsDataArray) {
     const startTime = Date.now();
 
     try {
-      const result = validationMode === 'batch-fast'
-        ? LogEntry.validateBatchFast(logsDataArray)
-        : LogEntry.validateBatch(logsDataArray);
+      const result = await LogEntry.createBatch(logsDataArray);
 
       const processingTime = Date.now() - startTime;
 
@@ -70,7 +67,9 @@ class ValidationService {
         ...result,
         processingTime,
         strategy: 'sync',
-        throughput: Math.round((logsDataArray.length / processingTime) * 1000)
+        throughput: processingTime === 0
+          ? logsDataArray.length
+          : Math.round((logsDataArray.length / processingTime) * 1000)
       };
     } catch (error) {
       throw new Error(`Sync validation failed: ${error.message}`);
@@ -80,42 +79,40 @@ class ValidationService {
   /**
    * Validate with single worker thread
    */
-  async validateBatchWithWorker(logsDataArray, validationMode) {
+  async validateBatchWithWorker(logsDataArray) {
     const startTime = Date.now();
 
     try {
-      const messageType = validationMode === 'batch-fast'
-        ? 'validate_batch_fast'
-        : 'validate_batch';
-
-      const result = await this.workerPool.execute(messageType, {
+      const result = await this.workerPool.execute('validate_batch', {
         logsDataArray
       });
 
       const processingTime = Date.now() - startTime;
 
-      // Convert plain objects back to LogEntry instances
+      // Convert validated plain objects to LogEntry instances
       result.validEntries = result.validEntries.map(data =>
-        LogEntry.createUnsafe(data)
+        LogEntry.create(data)
       );
 
       return {
         ...result,
         processingTime,
         strategy: 'single-worker',
-        throughput: Math.round((logsDataArray.length / processingTime) * 1000)
+        throughput: processingTime === 0
+          ? logsDataArray.length
+          : Math.round((logsDataArray.length / processingTime) * 1000)
       };
     } catch (error) {
       // Fallback to sync validation if worker fails
       console.warn('[ValidationService] Worker validation failed, falling back to sync:', error.message);
-      return this.validateBatchSync(logsDataArray, validationMode);
+      return await this.validateBatchSync(logsDataArray);
     }
   }
 
   /**
    * Validate large batches using multiple workers in parallel
    */
-  async validateBatchParallel(logsDataArray, validationMode) {
+  async validateBatchParallel(logsDataArray) {
     const startTime = Date.now();
     const numWorkers = Math.min(
       Math.ceil(logsDataArray.length / this.mediumBatchThreshold),
@@ -132,7 +129,7 @@ class ValidationService {
     try {
       // Process chunks in parallel
       const promises = chunks.map(chunk =>
-        this.validateBatchWithWorker(chunk, validationMode)
+        this.validateBatchWithWorker(chunk)
       );
 
       const results = await Promise.all(promises);
@@ -154,13 +151,15 @@ class ValidationService {
         ...combinedResult,
         processingTime,
         strategy: `parallel-${numWorkers}-workers`,
-        throughput: Math.round((logsDataArray.length / processingTime) * 1000),
+        throughput: processingTime === 0
+          ? logsDataArray.length
+          : Math.round((logsDataArray.length / processingTime) * 1000),
         workers: numWorkers,
         chunks: chunks.length
       };
     } catch (error) {
       console.warn('[ValidationService] Parallel validation failed, falling back to sync:', error.message);
-      return this.validateBatchSync(logsDataArray, validationMode);
+      return await this.validateBatchSync(logsDataArray);
     }
   }
 

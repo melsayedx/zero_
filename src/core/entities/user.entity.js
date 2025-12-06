@@ -51,6 +51,7 @@ class User {
     }
 
     // Check for at least one letter and one number
+    // TODO: Add more complex password validation and pre-compiled regex for performance
     const hasLetter = /[a-zA-Z]/.test(password);
     const hasNumber = /[0-9]/.test(password);
 

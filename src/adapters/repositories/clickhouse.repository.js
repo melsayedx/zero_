@@ -1,6 +1,8 @@
 const LogRepositoryPort = require('../../core/ports/log-repository.port');
 const LogEntry = require('../../core/entities/log-entry');
 
+// TODO: Understand the code in this module and batch buffer
+
 /**
  * In-Memory Query Cache - Fast caching for single-instance deployments
  */

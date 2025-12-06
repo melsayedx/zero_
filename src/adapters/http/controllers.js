@@ -49,16 +49,14 @@ class IngestLogController {
         (this.validationService.enableWorkerValidation && batchSize >= this.validationService.smallBatchThreshold)
       );
 
-      if (useWorkers) {
-        // Use worker threads for validation to prevent main thread blocking
-        const isLargeBatch = batchSize >= this.validationService.mediumBatchThreshold;
-        result = isLargeBatch
-          ? await this.ingestLogUseCase.executeFastWithWorkers(logData, this.validationService)
-          : await this.ingestLogUseCase.executeWithWorkers(logData, this.validationService);
-      } else {
-        // Use standard batch validation (main thread)
-        result = await this.ingestLogUseCase.execute(logData);
-      }
+      const validationLabel = useWorkers
+        ? (batchSize >= this.validationService.mediumBatchThreshold ? 'workers-large' : 'workers')
+        : 'standard';
+
+      result = await this.ingestLogUseCase.execute(logData, {
+        validationService: useWorkers ? this.validationService : null,
+        validationLabel
+      });
 
       if (result.isFullSuccess() || result.isPartialSuccess()) {
         return reply.code(202).send({

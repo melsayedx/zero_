@@ -1,5 +1,9 @@
 const { nanoid } = require('nanoid');
 
+// TODO: This class should not depend on nanoid and should verify the app_id format before saving to the database
+//       Also, created date should be removed from insertion as it will automatically set by the database
+//       Better validation and pre-compiled regex for performance
+
 /**
  * App Entity
  * Represents an application/project that generates logs
