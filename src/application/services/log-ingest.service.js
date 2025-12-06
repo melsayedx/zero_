@@ -51,7 +51,7 @@
  * ```
  */
 
-const IngestResult = require('../../core/use-cases/logs/ingest-result');
+const IngestResult = require('../use-cases/logs/ingest-result');
 
 class LogIngestionService {
 

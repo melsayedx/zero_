@@ -1,6 +1,6 @@
 require('dotenv').config();
 const createApp = require('./app');
-const { startHttp3Proxy } = require('./adapters/http3/server');
+const { startHttp3Proxy } = require('./infrastructure/http3/server');
 
 /**
  * Launch application with HTTP/3 support (via Caddy reverse proxy)

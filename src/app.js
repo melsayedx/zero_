@@ -1,9 +1,9 @@
 require('dotenv').config();
 const fastify = require('fastify');
-const DIContainer = require('./config/di-container');
-const setupRoutes = require('./adapters/http/routes');
-const { setupGrpcServer, shutdownGrpcServer } = require('./adapters/grpc/server');
-const createContentParserMiddleware = require('./adapters/http/content-parser.middleware');
+const DIContainer = require('./infrastructure/config/di-container');
+const setupRoutes = require('./interfaces/http/routes');
+const { setupGrpcServer, shutdownGrpcServer } = require('./interfaces/grpc/server');
+const createContentParserMiddleware = require('./interfaces/http/content-parser.middleware');
 const cluster = require('cluster');
 
 /**

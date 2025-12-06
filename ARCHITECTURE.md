@@ -1,232 +1,295 @@
 # Architecture Documentation
 
-## Hexagonal Architecture (Ports and Adapters)
+## Onion Architecture
 
-This application follows the **Hexagonal Architecture** pattern (also known as Ports and Adapters), which promotes separation of concerns and dependency inversion.
+This application follows the **Onion Architecture** pattern, which promotes strict separation of concerns through concentric layers with dependencies always pointing inward toward the core domain.
 
 ## Architecture Diagram
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     PRIMARY/DRIVING SIDE                         │
-│                   (External → Core)                              │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌────────────────┐            ┌─────────────────┐               │
-│  │   Controller   │  depends   │ IngestLogPort   │               │
-│  │   (Primary     │───────────>│  (Input Port)   │               │
-│  │    Adapter)    │     on     │  [Interface]    │               │
-│  └────────────────┘            └─────────────────┘               │
-│         │                              ▲                         │
-│         │                              │                         │
-│         │ calls                        │ implements              │
-│         │                              │                         │
-│         ▼                              │                         │
-│  ┌────────────────────────────────────────────────┐              │
-│  │        CORE / APPLICATION LAYER                │              │
-│  │                                                │              │
-│  │   ┌──────────────────────────┐                 │              │
-│  │   │   IngestLogUseCase       │                 │              │
-│  │   │   (Application Service)  │                 │              │
-│  │   │   • Business Logic       │                 │              │
-│  │   │   • Orchestration        │                 │              │
-│  │   └──────────────────────────┘                 │              │
-│  │              │                                 │              │
-│  │              │ depends on                      │              │
-│  │              ▼                                 │              │
-│  │   ┌──────────────────────────┐                 │              │
-│  │   │  LogRepositoryPort       │                 │              │
-│  │   │   (Output Port)          │                 │              │
-│  │   │   [Interface]            │                 │              │
-│  │   └──────────────────────────┘                 │              │
-│  │              ▲                                 │              │
-│  └──────────────│─────────────────────────────────┘              │
-│                 │                                                │
-│                 │ implements                                     │
-│                 │                                                │
-├─────────────────┼────────────────────────────────────────────────┤
-│                 │      SECONDARY/DRIVEN SIDE                     │
-│                 │        (Core → External)                       │
-│                 │                                                │
-│         ┌───────────────────┐                                    │
-│         │ ClickHouseRepo    │                                    │
-│         │  (Secondary       │                                    │
-│         │   Adapter)        │                                    │
-│         └───────────────────┘                                    │
-│                 │                                                │
-│                 ▼                                                │
-│         ┌───────────────────┐                                    │
-│         │   ClickHouse DB   │                                    │
-│         │   (External Dep)  │                                    │
-│         └───────────────────┘                                    │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                      LAYER 4: INFRASTRUCTURE                       │
+│                    (Frameworks & External Systems)                 │
+│                                                                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
+│  │   Database   │  │   Workers    │  │   Buffers    │             │
+│  │  Connections │  │   & Cluster  │  │  & Retry     │             │
+│  └──────────────┘  └──────────────┘  └──────────────┘             │
+├────────────────────────────────────────────────────────────────────┤
+│                      LAYER 3: INTERFACES                           │
+│                    (Adapters & Gateways)                           │
+│                                                                    │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐    │
+│  │  HTTP/gRPC      │  │   Persistence   │  │   Middleware    │    │
+│  │  Controllers    │  │   Repositories  │  │   & Parsers     │    │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘    │
+├────────────────────────────────────────────────────────────────────┤
+│                      LAYER 2: APPLICATION                          │
+│                    (Use Cases & Orchestration)                     │
+│                                                                    │
+│  ┌─────────────────────────────────────────────────────────┐      │
+│  │                    Use Cases                             │      │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐    │      │
+│  │  │ IngestLog   │ │ GetLogs     │ │ Auth/App UseCases│   │      │
+│  │  └─────────────┘ └─────────────┘ └─────────────────┘    │      │
+│  │                                                          │      │
+│  │                 Application Services                     │      │
+│  │  ┌─────────────────────────────────────────────────┐    │      │
+│  │  │          LogIngestionService                     │    │      │
+│  │  └─────────────────────────────────────────────────┘    │      │
+│  └─────────────────────────────────────────────────────────┘      │
+├────────────────────────────────────────────────────────────────────┤
+│                      LAYER 1: DOMAIN                               │
+│                    (Core Business Rules)                           │
+│                                                                    │
+│  ┌─────────────────────────────────────────────────────────┐      │
+│  │   Entities      │   Value Objects    │   Contracts      │      │
+│  │  ┌──────────┐   │  ┌─────────────┐  │  ┌────────────┐  │      │
+│  │  │ LogEntry │   │  │ LogLevel    │  │  │ LogRepo    │  │      │
+│  │  │ User     │   │  │ AppId       │  │  │ UserRepo   │  │      │
+│  │  │ App      │   │  │ Metadata    │  │  │ AppRepo    │  │      │
+│  │  └──────────┘   │  │ TraceId     │  │  │ IngestLog  │  │      │
+│  │                 │  └─────────────┘  │  └────────────┘  │      │
+│  └─────────────────────────────────────────────────────────┘      │
+└────────────────────────────────────────────────────────────────────┘
 ```
-
-## Layers Explained
-
-### 1. **Core / Application Layer** (center of hexagon)
-- **Entities**: Domain models with business rules (`LogEntry`)
-- **Use Cases**: Application-specific business logic (`IngestLogUseCase extends IngestLogPort`)
-- **Ports**: Interfaces defining contracts
-  - **Input Ports**: Define what the application CAN DO (e.g., `IngestLogPort`)
-  - **Output Ports**: Define what the application NEEDS (e.g., `LogRepositoryPort`)
-
-### 2. **Primary Adapters** (driving side)
-- **Purpose**: Initiate interactions with the application
-- **Examples**: 
-  - HTTP Controllers (`IngestLogController`)
-  - CLI interfaces
-  - Message queue consumers
-- **Dependency**: Primary adapters depend on INPUT PORTS (interfaces)
-
-### 3. **Secondary Adapters** (driven side)
-- **Purpose**: Provide implementations for what the application needs
-- **Examples**:
-  - Database repositories (`ClickHouseRepository extends LogRepositoryPort`)
-  - External API clients
-  - File systems
-- **Dependency**: Secondary adapters implement OUTPUT PORTS (interfaces)
-
-### 📝 Note on JavaScript "Interfaces"
-JavaScript doesn't have true interfaces (TypeScript does). We use class inheritance (`extends`) to show intent:
-- `IngestLogUseCase extends IngestLogPort` - Use case implements the input port
-- `ClickHouseRepository extends LogRepositoryPort` - Repository implements the output port
-
-This provides:
-- ✅ Clear architectural intent
-- ✅ Base method definitions
-- ✅ Documentation through code
-- ❌ No compile-time enforcement (use TypeScript for that)
 
 ## Dependency Direction
 
-The key principle is **Dependency Inversion**:
+The key principle of Onion Architecture is that **dependencies always point inward**:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  ALL DEPENDENCIES POINT INWARD → TOWARD THE CORE    │
-└─────────────────────────────────────────────────────┘
+Infrastructure → Interfaces → Application → Domain
+      ↓              ↓            ↓           ↓
+   (Layer 4)     (Layer 3)    (Layer 2)   (Layer 1)
 
-Controller ──→ Use Case ←── Repository
-(adapter)      (core)        (adapter)
+Dependencies flow: INWARD ONLY (toward the center)
 ```
 
 ### Benefits:
-1. ✅ **Core is isolated** - No dependencies on frameworks or infrastructure
-2. ✅ **Testable** - Easy to mock ports and test use cases
-3. ✅ **Flexible** - Swap implementations without changing core logic
-4. ✅ **Maintainable** - Clear separation of concerns
+1. ✅ **Domain is completely isolated** - No dependencies on frameworks or infrastructure
+2. ✅ **Testable** - Each layer can be tested independently with mocks
+3. ✅ **Flexible** - Swap implementations without changing business logic
+4. ✅ **Maintainable** - Clear separation of concerns with enforced boundaries
+
+## Layers Explained
+
+### Layer 1: Domain (innermost)
+- **Entities**: Core business objects with behavior (`LogEntry`, `User`, `App`)
+- **Value Objects**: Immutable objects representing values (`LogLevel`, `AppId`, `Metadata`, `TraceId`)
+- **Contracts**: Interfaces defining what the domain needs (not how it's implemented)
+- **No external dependencies** - Pure JavaScript business logic
+
+### Layer 2: Application
+- **Use Cases**: Application-specific business rules (`IngestLogUseCase`, `GetLogsByAppIdUseCase`)
+- **Application Services**: Orchestration and cross-cutting concerns (`LogIngestionService`)
+- **Depends on**: Domain layer contracts only
+- **Does not know about**: HTTP, databases, or any infrastructure
+
+### Layer 3: Interfaces (Adapters)
+- **HTTP Controllers**: Handle HTTP requests and responses
+- **gRPC Handlers**: Handle gRPC service methods
+- **Persistence Repositories**: Implement domain contracts for data storage
+- **Middleware**: Request processing, authentication, parsing
+- **Depends on**: Application and Domain layers
+
+### Layer 4: Infrastructure (outermost)
+- **Database Connections**: ClickHouse, MongoDB, Redis clients
+- **Workers**: Background job processors
+- **Cluster Management**: Process clustering and worker threads
+- **Buffers**: Batch buffer, buffer pool optimizations
+- **Retry Strategies**: Error handling and retry mechanisms
+- **Configuration**: DI container, environment configuration
 
 ## Code Organization
 
 ```
 src/
-├── core/                     # Application Core (no external dependencies)
-│   ├── entities/            # Domain models
-│   │   └── log-entry.js
-│   ├── ports/               # Interfaces/Contracts
-│   │   ├── ingest-log.port.js       (INPUT PORT)
-│   │   └── log-repository.port.js   (OUTPUT PORT)
-│   └── use-cases/           # Business logic
-│       └── ingest-log.use-case.js
+├── domain/                     # Layer 1: Domain (innermost - no dependencies)
+│   ├── entities/              # Business objects
+│   │   ├── log-entry.js
+│   │   ├── user.entity.js
+│   │   └── app.entity.js
+│   ├── value-objects/         # Immutable value types
+│   │   ├── app-id.js
+│   │   ├── log-level.js
+│   │   ├── metadata.js
+│   │   └── trace-id.js
+│   └── contracts/             # Interfaces (what domain needs)
+│       ├── ingest-log.contract.js
+│       ├── log-repository.contract.js
+│       ├── user-repository.contract.js
+│       ├── app-repository.contract.js
+│       └── retry-strategy.contract.js
 │
-├── adapters/                # External world implementations
-│   ├── http/                # PRIMARY ADAPTERS
+├── application/               # Layer 2: Application (depends on domain only)
+│   ├── use-cases/            # Business workflows
+│   │   ├── logs/
+│   │   │   ├── ingest-log.use-case.js
+│   │   │   ├── get-logs-by-app-id.use-case.js
+│   │   │   ├── ingest-result.js
+│   │   │   └── query-result.js
+│   │   ├── auth/
+│   │   │   ├── login-user.use-case.js
+│   │   │   └── register-user.use-case.js
+│   │   └── apps/
+│   │       ├── create-app.use-case.js
+│   │       ├── list-user-apps.use-case.js
+│   │       └── verify-app-access.use-case.js
+│   └── services/             # Application services (orchestration)
+│       └── log-ingest.service.js
+│
+├── interfaces/               # Layer 3: Interface Adapters
+│   ├── http/                 # HTTP controllers
 │   │   ├── controllers.js
-│   │   ├── routes.js
-│   │   └── response-helper.js
-│   └── repositories/        # SECONDARY ADAPTERS
-│       └── clickhouse.repository.js
+│   │   ├── auth.controllers.js
+│   │   ├── app.controllers.js
+│   │   └── routes.js
+│   ├── grpc/                 # gRPC handlers
+│   │   ├── handlers.js
+│   │   └── server.js
+│   ├── persistence/          # Repository implementations
+│   │   ├── clickhouse.repository.js
+│   │   ├── redis-log.repository.js
+│   │   ├── user.repository.js
+│   │   └── app.repository.js
+│   ├── middleware/           # Request processing
+│   │   ├── auth.middleware.js
+│   │   ├── content-parser.middleware.js
+│   │   └── request-coalescer.js
+│   └── parser/               # Format parsers
+│       └── protobuf-parser.js
 │
-└── config/                  # Configuration & DI
-    ├── database.js
-    ├── di-container.js
-    ├── http-status.js
-    └── ...
+└── infrastructure/           # Layer 4: Infrastructure (outermost)
+    ├── database/             # Database connections
+    │   ├── clickhouse.js
+    │   ├── mongodb.js
+    │   └── redis.js
+    ├── workers/              # Background job processors
+    │   ├── validation-service.js
+    │   ├── validation-worker.js
+    │   ├── log-processor.worker.js
+    │   └── worker-pool.js
+    ├── cluster/              # Process management
+    │   ├── cluster-manager.js
+    │   └── cluster-worker.js
+    ├── buffers/              # Batching & buffering
+    │   ├── batch-buffer.js
+    │   └── buffer-utils.js
+    ├── retry-strategies/     # Error recovery
+    │   ├── redis-retry-strategy.js
+    │   └── in-memory-retry-strategy.js
+    ├── http2/                # HTTP/2 server
+    │   └── server.js
+    ├── http3/                # HTTP/3 server
+    │   └── server.js
+    └── config/               # Configuration & DI
+        └── di-container.js
 ```
 
 ## Example Flow: Ingesting a Log
 
 ```
-1. HTTP Request
+1. HTTP Request arrives
    │
    ▼
-2. Controller (Primary Adapter)
-   │ - Validates HTTP request
-   │ - Calls use case through Input Port interface
+2. Interface Layer: HTTP Controller (interfaces/http/)
+   │ - Validates HTTP request format
+   │ - Calls application use case
    │
    ▼
-3. Use Case (Core)
+3. Application Layer: IngestLogUseCase (application/use-cases/)
+   │ - Orchestrates business workflow
+   │ - Creates domain entities
+   │ - Calls repository through contract
+   │
+   ▼
+4. Domain Layer: LogEntry Entity (domain/entities/)
    │ - Validates business rules
-   │ - Creates domain entity
-   │ - Calls repository through Output Port interface
+   │ - Creates value objects
+   │ - Pure domain logic
    │
    ▼
-4. Repository (Secondary Adapter)
-   │ - Implements persistence logic
-   │ - Stores in ClickHouse
+5. Interface Layer: Repository Implementation (interfaces/persistence/)
+   │ - Implements domain contract
+   │ - Translates to storage format
    │
    ▼
-5. Response flows back up the chain
+6. Infrastructure Layer: Database (infrastructure/database/)
+   │ - Handles actual persistence
+   │ - Connection management
+   │
+   ▼
+7. Response flows back up the chain
 ```
 
 ## Key Principles Applied
 
 ### 1. Dependency Inversion Principle (DIP)
-- High-level modules (use cases) don't depend on low-level modules (repositories)
-- Both depend on abstractions (ports/interfaces)
+- High-level modules (domain, application) don't depend on low-level modules (infrastructure)
+- Both depend on abstractions (contracts/interfaces)
 
 ### 2. Single Responsibility Principle (SRP)
-- Controllers: Handle HTTP concerns
-- Use Cases: Handle business logic
-- Repositories: Handle data persistence
-- Entities: Represent domain models
+- Controllers: Handle HTTP/gRPC concerns only
+- Use Cases: Handle business workflow only
+- Repositories: Handle data persistence only
+- Entities: Represent domain models with business rules
 
 ### 3. Open/Closed Principle (OCP)
-- Can add new adapters (e.g., PostgreSQL repository) without modifying core
+- Can add new repositories (e.g., PostgreSQL) without modifying domain
 - Can add new controllers (e.g., GraphQL) without modifying use cases
+
+### 4. Interface Segregation Principle (ISP)
+- Contracts are specific to what each consumer needs
+- No "fat" interfaces with unused methods
 
 ## Testing Strategy
 
 ```
 Unit Tests:
-├── Entities: Test validation logic in isolation
-├── Use Cases: Test with mocked port implementations
-└── Adapters: Test with real/test infrastructure
+├── Domain Layer:
+│   ├── Entities: Test validation logic in isolation
+│   └── Value Objects: Test immutability and constraints
+├── Application Layer:
+│   └── Use Cases: Test with mocked contract implementations
+└── Interface Layer:
+    ├── Controllers: Test request/response handling
+    └── Repositories: Test with real/test infrastructure
 
 Integration Tests:
-└── Test complete flow with real adapters
+└── Test complete flows through all layers
 ```
 
 ## Adding New Features
 
 ### Adding a new use case:
-1. Create input port interface in `core/ports/`
-2. Create use case in `core/use-cases/`
-3. Use existing or create new output ports
-4. Create adapter (controller) in `adapters/http/`
+1. Define contract interface in `domain/contracts/` (if new dependency needed)
+2. Create use case in `application/use-cases/`
+3. Use existing domain entities or create new ones
+4. Create controller in `interfaces/http/` or `interfaces/grpc/`
 5. Wire up in DI container
 
 ### Adding a new data source:
-1. Use existing output port or create new one
-2. Create adapter in `adapters/repositories/`
-3. Wire up in DI container
-4. No changes needed in core!
+1. Use existing contract or create new one in `domain/contracts/`
+2. Create repository implementation in `interfaces/persistence/`
+3. Add infrastructure setup in `infrastructure/database/`
+4. Wire up in DI container
+5. No changes needed in domain or application layers!
 
-## JavaScript vs TypeScript for Ports
+## JavaScript vs TypeScript for Contracts
 
 ### Current Implementation (JavaScript)
 ```javascript
-// Port (base class)
-class IngestLogPort {
-  async execute(logData) {
-    throw new Error('Method not implemented');
+// Contract (base class)
+class LogRepositoryContract {
+  async save(logEntries) {
+    throw new Error('Method not implemented: save()');
   }
 }
 
 // Implementation (extends)
-class IngestLogUseCase extends IngestLogPort {
-  async execute(logData) {
+class ClickHouseRepository extends LogRepositoryContract {
+  async save(logEntries) {
     // actual implementation
   }
 }
@@ -235,49 +298,37 @@ class IngestLogUseCase extends IngestLogPort {
 **Pros:**
 - ✅ Works in plain JavaScript
 - ✅ Shows architectural intent
-- ✅ Provides base implementations
+- ✅ Provides base method definitions
+- ✅ Runtime error if method not implemented
 
 **Cons:**
 - ❌ No compile-time checking
-- ❌ Can forget to extend port
+- ❌ Can forget to extend contract
 - ❌ Runtime errors only
 
-### With TypeScript (alternative)
+### With TypeScript (recommended for scaling)
 ```typescript
-// Port (interface)
-interface IngestLogPort {
-  execute(logData: any): Promise<Result>;
+// Contract (interface)
+interface LogRepositoryContract {
+  save(logEntries: LogEntry[]): Promise<Result>;
 }
 
 // Implementation (implements)
-class IngestLogUseCase implements IngestLogPort {
-  async execute(logData: any): Promise<Result> {
+class ClickHouseRepository implements LogRepositoryContract {
+  async save(logEntries: LogEntry[]): Promise<Result> {
     // TypeScript enforces this method exists!
   }
 }
 ```
 
-**Pros:**
-- ✅ Compile-time checking
-- ✅ IDE support
-- ✅ Type safety
-- ✅ Enforces contract
-
-**Why JavaScript here?**
-- Simple project
-- No build step needed
-- Ports still provide architectural documentation
-- Tests catch issues
-
 **When to upgrade to TypeScript?**
-- Multiple teams
-- Large codebase
-- Need strict contracts
+- Multiple teams working on codebase
+- Large codebase (100+ files)
+- Need strict contract enforcement
 - Want better IDE support
 
 ## References
 
-- [Hexagonal Architecture by Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture/)
+- [The Onion Architecture by Jeffrey Palermo](https://jeffreypalermo.com/2008/07/the-onion-architecture-part-1/)
 - [Clean Architecture by Robert C. Martin](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
-- [Ports and Adapters Pattern](https://herbertograca.com/2017/09/14/ports-adapters-architecture/)
-
+- [Domain-Driven Design by Eric Evans](https://domainlanguage.com/ddd/)

@@ -1,6 +1,6 @@
 require('dotenv').config();
 const createApp = require('./app');
-const { createHttp2Server } = require('./adapters/http2/server');
+const { createHttp2Server } = require('./infrastructure/http2/server');
 
 /**
  * Launch application with HTTP/2 support
