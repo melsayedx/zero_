@@ -4,13 +4,13 @@
  * Maintains backward compatibility with existing JSON API
  */
 
-const { getProtobufParser } = require('./protobuf-parser');
+const ProtobufParser = require('./protobuf-parser');
 const fp = require('fastify-plugin');
 
 /**
  * Fastify plugin to add content type parsers for JSON and Protocol Buffer formats
  * Supports:
- * - application/json (backward compatible)
+ * - application/json
  * - application/x-protobuf (single entry)
  * - application/x-protobuf-batch (batch of entries)
  *
@@ -26,7 +26,7 @@ function contentParserPlugin(fastify, options, next) {
   let protobufParser = null;
 
   // Initialize protobuf parser once
-  const initPromise = getProtobufParser()
+  const initPromise = ProtobufParser.getInstance()
     .then(parser => {
       protobufParser = parser;
       console.log('[ContentParser] Protobuf parser initialized');
@@ -36,38 +36,45 @@ function contentParserPlugin(fastify, options, next) {
       next(error);
     });
 
-  // Add content type parser for single protobuf entries
+  /**
+   * Shared protobuf parsing logic for both single and batch entries
+   * @param {Object} request - Fastify request
+   * @param {Buffer} payload - Binary protobuf data
+   * @param {boolean} isBatch - Whether this is a batch request
+   */
+  async function parseProtobuf(request, payload, isBatch) {
+    await initPromise;
+
+    if (!protobufParser) {
+      throw new Error('Protocol Buffer parser not available');
+    }
+
+    const formatLabel = isBatch ? 'protobuf-batch' : 'protobuf-single';
+
+    // Try worker-based decoding for large payloads
+    let decodedData = null;
+    if (validationService) {
+      decodedData = await validationService.decodeProtobuf(payload, isBatch);
+    }
+
+    // Fallback to main thread if worker not used or failed
+    if (!decodedData) {
+      decodedData = isBatch
+        ? protobufParser.decodeBatch(payload)
+        : protobufParser.decodeSingleEntry(payload);
+      request.contentFormat = formatLabel;
+    } else {
+      request.contentFormat = `${formatLabel}-worker`;
+    }
+
+    return decodedData;
+  }
+
+  // Single protobuf entry parser
   fastify.addContentTypeParser('application/x-protobuf', { parseAs: 'buffer' },
     async (request, payload) => {
       try {
-        // Ensure protobuf parser is initialized
-        await initPromise;
-
-        if (!protobufParser) {
-          throw new Error('Protocol Buffer parser not available');
-        }
-
-        // Try worker-based decoding for large payloads
-        let decodedData = null;
-        if (validationService) {
-          decodedData = await validationService.decodeProtobuf(payload, false);
-        }
-
-        // Fallback to main thread if worker not used or failed
-        if (!decodedData) {
-          const singleEntry = protobufParser.decodeSingleEntry(payload);
-          decodedData = [singleEntry]; // Wrap in array for consistency
-          request.contentFormat = 'protobuf-single';
-        } else {
-          // Data decoded by worker
-          request.contentFormat = 'protobuf-single-worker';
-          // Ensure array format
-          if (!Array.isArray(decodedData)) {
-            decodedData = [decodedData];
-          }
-        }
-
-        return decodedData;
+        return await parseProtobuf(request, payload, false);
       } catch (error) {
         console.error('[ContentParser] Error parsing protobuf single entry:', error);
         throw error;
@@ -75,54 +82,17 @@ function contentParserPlugin(fastify, options, next) {
     }
   );
 
-  // Add content type parser for batch protobuf entries
+  // Batch protobuf entries parser
   fastify.addContentTypeParser('application/x-protobuf-batch', { parseAs: 'buffer' },
     async (request, payload) => {
       try {
-        // Ensure protobuf parser is initialized
-        await initPromise;
-
-        if (!protobufParser) {
-          throw new Error('Protocol Buffer parser not available');
-        }
-
-        // Try worker-based decoding for large payloads
-        let decodedData = null;
-        if (validationService) {
-          decodedData = await validationService.decodeProtobuf(payload, true);
-        }
-
-        // Fallback to main thread if worker not used or failed
-        if (!decodedData) {
-          decodedData = protobufParser.decodeBatch(payload);
-          request.contentFormat = 'protobuf-batch';
-        } else {
-          // Data decoded by worker
-          request.contentFormat = 'protobuf-batch-worker';
-          // Ensure array format
-          if (!Array.isArray(decodedData)) {
-            decodedData = [decodedData];
-          }
-        }
-
-        return decodedData;
+        return await parseProtobuf(request, payload, true);
       } catch (error) {
         console.error('[ContentParser] Error parsing protobuf batch:', error);
         throw error;
       }
     }
   );
-
-  // Hook to set content format for JSON requests
-  fastify.addHook('preHandler', async (request, reply) => {
-    if (request.method === 'POST' && request.headers['content-type']?.includes('application/json')) {
-      // Ensure req.body is an array for consistency
-      if (request.body && !Array.isArray(request.body)) {
-        request.body = [request.body];
-      }
-      request.contentFormat = 'json';
-    }
-  });
 
   next();
 }

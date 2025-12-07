@@ -9,7 +9,7 @@
  * This is a PRIMARY ADAPTER that depends on the IngestLogPort (input port)
  */
 class IngestLogController {
-  constructor(ingestLogUseCase, validationService = null) {
+  constructor(ingestLogUseCase) {
     if (!ingestLogUseCase) {
       throw new Error('IngestLogUseCase is required');
     }
@@ -20,13 +20,11 @@ class IngestLogController {
     }
 
     this.ingestLogUseCase = ingestLogUseCase;
-    this.validationService = validationService;
   }
 
   /**
    * Handle POST /api/logs request
    * Supports JSON and Protocol Buffer formats
-   * Automatically chooses optimal validation strategy based on batch size and configuration
    *
    * @param {FastifyRequest} request - Fastify request
    * @param {FastifyReply} reply - Fastify reply
@@ -36,27 +34,11 @@ class IngestLogController {
       let logData = request.body;
 
       // Ensure array format for batch validation
-      // Middleware typically provides arrays, but handle single objects as fallback
       if (!Array.isArray(logData)) {
         logData = [logData];
       }
 
-      // Choose validation strategy based on batch size and availability of worker threads
-      let result;
-      const batchSize = logData.length;
-      const useWorkers = this.validationService && (
-        this.validationService.forceWorkerValidation ||
-        (this.validationService.enableWorkerValidation && batchSize >= this.validationService.smallBatchThreshold)
-      );
-
-      const validationLabel = useWorkers
-        ? (batchSize >= this.validationService.mediumBatchThreshold ? 'workers-large' : 'workers')
-        : 'standard';
-
-      result = await this.ingestLogUseCase.execute(logData, {
-        validationService: useWorkers ? this.validationService : null,
-        validationLabel
-      });
+      const result = await this.ingestLogUseCase.execute(logData);
 
       if (result.isFullSuccess() || result.isPartialSuccess()) {
         return reply.code(202).send({
@@ -65,16 +47,14 @@ class IngestLogController {
           stats: {
             accepted: result.accepted,
             rejected: result.rejected,
-            throughput: `${Math.round(result.throughput)} logs/sec`,
-            validationStrategy: result.validationStrategy || result.validationMode,
-            workerThreads: useWorkers
+            throughput: `${Math.round(result.throughput)} logs/sec`
           }
         });
       } else {
         return reply.code(400).send({
           success: false,
           message: 'Invalid log data',
-          errors: result.errors.slice(0, 10) // Show first 10 errors
+          errors: result.errors.slice(0, 10)
         });
       }
     } catch (error) {
@@ -145,12 +125,12 @@ class GetLogsByAppIdController {
     if (!getLogsByAppIdUseCase) {
       throw new Error('GetLogsByAppIdUseCase is required');
     }
-    
+
     // Validate that the use case implements the execute method
     if (typeof getLogsByAppIdUseCase.execute !== 'function') {
       throw new Error('GetLogsByAppIdUseCase must implement the execute() method');
     }
-    
+
     this.getLogsByAppIdUseCase = getLogsByAppIdUseCase;
   }
 
@@ -198,11 +178,10 @@ class GetLogsByAppIdController {
  * Controller for retrieving batch buffer and system stats
  */
 class StatsController {
-  constructor(logRepository, optimizedIngestService = null, validationService = null, bufferPool = null) {
+  constructor(logRepository, optimizedIngestService = null, validationService = null) {
     this.logRepository = logRepository;
     this.optimizedIngestService = optimizedIngestService;
     this.validationService = validationService;
-    this.bufferPool = bufferPool;
   }
 
   async handle(request, reply) {
@@ -218,11 +197,6 @@ class StatsController {
       // Add validation service stats
       if (this.validationService) {
         stats.workerPool = this.validationService.getStats();
-      }
-
-      // Add buffer pool stats
-      if (this.bufferPool) {
-        stats.bufferPool = this.bufferPool.getStats();
       }
 
       return reply.code(200).send({

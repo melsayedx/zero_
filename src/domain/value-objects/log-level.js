@@ -48,26 +48,23 @@ class LogLevel {
   static #privateConstructor = Symbol('LogLevel.privateConstructor');
 
   /**
-   * Valid log level values - centralized definition for easy maintenance.
+   * Valid log level values as array - order matches protobuf enum (0=DEBUG, 1=INFO, etc.)
+   * @type {string[]}
+   */
+  static #VALID_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'];
+
+  /**
+   * Set for O(1) validation lookups
    * @type {Set<string>}
    */
-  static #VALID_LEVELS = new Set(['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']);
+  static #VALID_LEVELS_SET = new Set(LogLevel.#VALID_LEVELS);
 
   /**
    * Dynamically create static singleton instances for all valid log levels.
-   *
-   * This static block executes once when the class is loaded, creating pre-initialized
-   * instances for each valid log level. This ensures:
-   * - Singleton pattern (same string value = same instance)
-   * - Fast access via LogLevel.DEBUG, LogLevel.INFO, etc.
-   * - Memory efficiency (no duplicate instances)
-   * - Strict enforcement of singleton pattern
    */
   static {
-    const validLevelsArray = Array.from(LogLevel.#VALID_LEVELS);
-    for (let i = 0; i < validLevelsArray.length; i++) {
-      const level = validLevelsArray[i];
-      // level is already normalized (uppercase), so pass it directly
+    for (let i = 0; i < LogLevel.#VALID_LEVELS.length; i++) {
+      const level = LogLevel.#VALID_LEVELS[i];
       LogLevel[level] = new LogLevel(LogLevel.#privateConstructor, level);
     }
   }
@@ -159,7 +156,7 @@ class LogLevel {
 
     const instance = LogLevel[normalizedValue];
     if (!instance) {
-      throw new Error(`Invalid log level: '${value}'. Must be string and one of: ${Array.from(LogLevel.#VALID_LEVELS).join(', ')}`);
+      throw new Error(`Invalid log level: '${value}'. Must be string and one of: ${LogLevel.#VALID_LEVELS.join(', ')}`);
     }
     return instance;
   }
@@ -183,7 +180,7 @@ class LogLevel {
    * ```
    */
   static isValid(value) {
-    return typeof value === 'string' && LogLevel.#VALID_LEVELS.has(LogLevel.#normalizeValue(value));
+    return typeof value === 'string' && LogLevel.#VALID_LEVELS_SET.has(LogLevel.#normalizeValue(value));
   }
 
   /**
@@ -223,6 +220,31 @@ class LogLevel {
    */
   equals(other) {
     return other instanceof LogLevel && this.value === other.value;
+  }
+
+  /**
+   * Get LogLevel from a numeric index or string value.
+   * 
+   * Accepts both numeric ordinals (0=DEBUG, 1=INFO, 2=WARN, 3=ERROR, 4=FATAL)
+   * and string values (case-insensitive).
+   * 
+   * @param {number|string} value - Log level as number (ordinal) or string
+   * @returns {LogLevel} The corresponding LogLevel instance
+   * 
+   * @example
+   * ```javascript
+   * LogLevel.fromValue(0);      // LogLevel.DEBUG
+   * LogLevel.fromValue(1);      // LogLevel.INFO
+   * LogLevel.fromValue('warn'); // LogLevel.WARN
+   * ```
+   */
+  static fromValue(value) {
+    if (typeof value === 'string') {
+      return LogLevel.get(value);
+    }
+
+    const levelName = LogLevel.#VALID_LEVELS[value];
+    return levelName ? LogLevel[levelName] : LogLevel.INFO;
   }
 
 }

@@ -20,7 +20,7 @@ const ValidationService = require('../workers/validation-service');
 const LogProcessorWorker = require('../workers/log-processor.worker');
 const LogIngestionService = require('../../application/services/log-ingest.service');
 const RequestCoalescer = require('../request-coalescing/request-coalescer');
-const { BufferPool } = require('../buffers/buffer-utils');
+
 const BatchBuffer = require('../buffers/batch-buffer');
 const RedisRetryStrategy = require('../retry-strategies/redis-retry-strategy');
 const { getRedisClient, closeRedisConnection } = require('../database/redis');
@@ -28,7 +28,6 @@ const { getRedisClient, closeRedisConnection } = require('../database/redis');
 /**
  * @typedef {Object} DIContainerInstances
  * @property {import('../database/clickhouse').ClickHouseClient} clickhouseClient - ClickHouse database client
- * @property {BufferPool} bufferPool - Buffer pool for zero-copy operations
  * @property {ValidationService} validationService - Validation service with worker threads
  * @property {LogProcessorWorker} logProcessorWorker - Worker to move logs from Redis to ClickHouse
  * @property {ClickHouseRepository} clickhouseRepository - ClickHouse repository implementation
@@ -105,11 +104,6 @@ class DIContainer {
 
     // Initialize Redis client for high-throughput log ingestion
     this.instances.redisClient = getRedisClient();
-
-    this.instances.bufferPool = new BufferPool({
-      sizes: [1024, 4096, 16384, 65536],
-      poolSize: parseInt(process.env.BUFFER_POOL_SIZE) || 100
-    });
 
     console.log('[DIContainer] Infrastructure initialized');
   }
@@ -243,8 +237,7 @@ class DIContainer {
     console.log('[DIContainer] Phase 5: Initializing interface adapters...');
 
     this.instances.ingestLogController = new IngestLogController(
-      this.instances.ingestLogUseCase,
-      this.instances.validationService
+      this.instances.ingestLogUseCase
     );
 
     this.instances.healthCheckController = new HealthCheckController(
@@ -258,8 +251,7 @@ class DIContainer {
     this.instances.statsController = new StatsController(
       this.instances.logRepository,
       this.instances.optimizedIngestService,
-      this.instances.validationService,
-      this.instances.bufferPool
+      this.instances.validationService
     );
 
     console.log('[DIContainer] Interface adapters initialized');

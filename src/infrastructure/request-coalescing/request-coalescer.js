@@ -107,19 +107,22 @@ class RequestCoalescer extends CoalescerPort {
     super();
 
     this.processor = processor; // Function to process batch
-    
+
     // Configuration
     this.maxWaitTime = options.maxWaitTime || 10; // 10ms window
     this.maxBatchSize = options.maxBatchSize || 100; // Max requests per batch
     this.minBatchSize = options.minBatchSize || 2; // Minimum to trigger coalescing
     this.enabled = options.enabled !== false; // Default: enabled
-    
-    // State - Pre-allocate array to avoid resizing during runtime
-    this.pending = new Array(this.maxBatchSize);
+
+    // Double-buffer (ping-pong) pattern - eliminates array allocation on flush
+    // Two pre-allocated arrays alternate: one collects requests, other processes
+    this.bufferA = new Array(this.maxBatchSize);
+    this.bufferB = new Array(this.maxBatchSize);
+    this.activeBuffer = this.bufferA;
     this.pendingIndex = 0; // Track actual number of pending requests
     this.timer = null;
     this.isFlushing = false;
-    
+
     // Metrics
     this.metrics = {
       totalRequests: 0,
@@ -127,16 +130,18 @@ class RequestCoalescer extends CoalescerPort {
       totalCoalesced: 0,
       avgBatchSize: 0,
       maxBatchSeen: 0,
-      bypassedRequests: 0
+      bypassedRequests: 0,
+      bufferSwaps: 0  // Track buffer swaps for monitoring
     };
-    
+
     console.log('[RequestCoalescer] Initialized with config:', {
       maxWaitTime: this.maxWaitTime,
       maxBatchSize: this.maxBatchSize,
-      enabled: this.enabled
+      enabled: this.enabled,
+      bufferPattern: 'double-buffer'
     });
   }
-  
+
   /**
    * Add a request to the coalescing buffer for batched processing.
    *
@@ -175,15 +180,16 @@ class RequestCoalescer extends CoalescerPort {
    */
   async add(data) {
     this.metrics.totalRequests++;
-    
+
     // If disabled, process immediately
     if (!this.enabled) {
       this.metrics.bypassedRequests++;
       return this.processor([data]).then(results => results[0]);
     }
-    
+
     return new Promise((resolve, reject) => {
-      this.pending[this.pendingIndex++] = { data, resolve, reject, timestamp: Date.now() };
+      // Use activeBuffer instead of pending
+      this.activeBuffer[this.pendingIndex++] = { data, resolve, reject, timestamp: Date.now() };
 
       // Flush immediately if batch is full
       if (this.pendingIndex >= this.maxBatchSize) {
@@ -195,7 +201,7 @@ class RequestCoalescer extends CoalescerPort {
       }
     });
   }
-  
+
   /**
    * Process all currently pending requests as a single batch.
    *
@@ -234,37 +240,43 @@ class RequestCoalescer extends CoalescerPort {
 
     this.isFlushing = true;
 
-    // Take current batch and reset
+    // Double-buffer swap: take current buffer, switch to alternate
+    // This eliminates array allocation (no slice() needed)
     const batchSize = this.pendingIndex;
-    const batch = this.pending.slice(0, batchSize); // Only take actual items
+    const batch = this.activeBuffer;
+    this.activeBuffer = (batch === this.bufferA) ? this.bufferB : this.bufferA;
     this.pendingIndex = 0;
+    this.metrics.bufferSwaps++;
 
     // Update metrics
     this.metrics.totalBatches++;
-    
+
     if (batchSize > 1) {
       this.metrics.totalCoalesced += batchSize;
     }
-    
+
     if (batchSize > this.metrics.maxBatchSeen) {
       this.metrics.maxBatchSeen = batchSize;
     }
-    
+
     // Calculate running average
-    this.metrics.avgBatchSize = 
-      (this.metrics.avgBatchSize * (this.metrics.totalBatches - 1) + batchSize) / 
+    this.metrics.avgBatchSize =
+      (this.metrics.avgBatchSize * (this.metrics.totalBatches - 1) + batchSize) /
       this.metrics.totalBatches;
-    
+
     try {
-      // Extract data from pending requests
-      const dataArray = batch.map(req => req.data);
+      // Extract data from pending requests (only up to batchSize)
+      const dataArray = new Array(batchSize);
+      for (let i = 0; i < batchSize; i++) {
+        dataArray[i] = batch[i].data;
+      }
 
       // Process entire batch at once
       const results = await this.processor(dataArray);
 
       // Distribute results back to individual requests
       // Handle individual errors vs batch errors
-      for (let i = 0; i < batch.length; i++) {
+      for (let i = 0; i < batchSize; i++) {
         const result = results[i];
 
         // Check if this specific result indicates an error
@@ -285,19 +297,19 @@ class RequestCoalescer extends CoalescerPort {
 
       // Infrastructure error - reject all pending requests
       // This happens when the entire batch processor fails (DB connection, etc.)
-      for (let i = 0; i < batch.length; i++) {
+      for (let i = 0; i < batchSize; i++) {
         batch[i].reject(error);
       }
     } finally {
       this.isFlushing = false;
-      
+
       // If new requests arrived during processing, start timer
       if (this.pendingIndex > 0 && !this.timer) {
         this.timer = setTimeout(() => this.flush(), this.maxWaitTime);
       }
     }
   }
-  
+
   /**
    * Force immediate processing of all pending requests for graceful shutdown.
    *
@@ -325,7 +337,7 @@ class RequestCoalescer extends CoalescerPort {
       await this.flush();
     }
   }
-  
+
   /**
    * Get comprehensive statistics and operational metrics for the coalescer.
    *
@@ -368,7 +380,7 @@ class RequestCoalescer extends CoalescerPort {
     const coalescingRate = this.metrics.totalRequests > 0
       ? ((this.metrics.totalCoalesced / this.metrics.totalRequests) * 100).toFixed(2)
       : 0;
-    
+
     return {
       enabled: this.enabled,
       totalRequests: this.metrics.totalRequests,
@@ -378,10 +390,11 @@ class RequestCoalescer extends CoalescerPort {
       avgBatchSize: this.metrics.avgBatchSize.toFixed(2),
       maxBatchSeen: this.metrics.maxBatchSeen,
       bypassedRequests: this.metrics.bypassedRequests,
+      bufferSwaps: this.metrics.bufferSwaps,
       currentPending: this.pendingIndex
     };
   }
-  
+
   /**
    * Enable or disable request coalescing at runtime.
    *
@@ -409,13 +422,13 @@ class RequestCoalescer extends CoalescerPort {
   setEnabled(enabled) {
     this.enabled = enabled;
     console.log(`[RequestCoalescer] ${enabled ? 'Enabled' : 'Disabled'}`);
-    
+
     // If disabling, flush pending requests
     if (!enabled && this.pendingIndex > 0) {
       this.flush();
     }
   }
-  
+
   /**
    * Update coalescer configuration parameters at runtime.
    *
@@ -457,7 +470,7 @@ class RequestCoalescer extends CoalescerPort {
     if (config.minBatchSize !== undefined) {
       this.minBatchSize = config.minBatchSize;
     }
-    
+
     console.log('[RequestCoalescer] Config updated:', {
       maxWaitTime: this.maxWaitTime,
       maxBatchSize: this.maxBatchSize,
