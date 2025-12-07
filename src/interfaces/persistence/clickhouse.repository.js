@@ -55,8 +55,8 @@ class ClickHouseRepository extends LogRepositoryContract {
     this.client = client;
     this.tableName = options.tableName || 'logs';
 
-    // BatchBuffer will be injected later by DI container
-    this.batchBuffer = null;
+    // Note: This repository is stateless - no internal buffer
+    // Buffering is handled by LogProcessorWorker for crash-proof processing
 
     // Filter configuration defines supported fields and their properties
     this.FILTER_CONFIG = new Map([
@@ -635,125 +635,26 @@ class ClickHouseRepository extends LogRepositoryContract {
         }
       }
 
-      // Include batch buffer metrics
-      const bufferMetrics = this.batchBuffer.getMetrics();
-
       return {
         table: this.tableName,
         stats: stats[0] || null,
-        buffer: bufferMetrics,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
       return {
         error: error.message,
-        buffer: this.batchBuffer.getMetrics(),
         timestamp: new Date().toISOString()
       };
     }
   }
 
-  /**
-   * Get current batch buffer performance metrics.
-   *
-   * Returns real-time statistics about buffer performance including pending items,
-   * flush counts, error rates, and timing information.
-   *
-   * @returns {Object} Buffer performance metrics
-   * @returns {number} return.pendingCount - Number of items waiting in buffer
-   * @returns {number} return.flushCount - Total successful flushes
-   * @returns {number} return.errorCount - Total flush errors
-   * @returns {number} return.avgFlushTime - Average flush time in milliseconds
-   * @returns {number} return.lastFlushTime - Timestamp of last flush
-   *
-   * @example
-   * ```javascript
-   * const metrics = repo.getBufferMetrics();
-   * if (metrics.pendingCount > 50000) {
-   *   await repo.flushBuffer(); // Manual flush if needed
-   * }
-   * ```
-   */
-  getBufferMetrics() {
-    return this.batchBuffer.getMetrics();
-  }
+  // Note: Buffer-related methods (getBufferMetrics, getBufferHealth, flushBuffer)
+  // have been removed. Buffer logic is now in LogProcessorWorker for crash-proof processing.
+  // Use worker.getHealth() for buffer metrics.
 
-  /**
-   * Get batch buffer health status.
-   *
-   * Provides health assessment of the buffer including operational status,
-   * error rates, and performance indicators for monitoring and alerting.
-   *
-   * @returns {Object} Buffer health status
-   * @returns {string} return.status - Health status ('healthy', 'degraded', 'unhealthy')
-   * @returns {boolean} return.isOperational - Whether buffer is operational
-   * @returns {number} return.errorRate - Error rate as percentage
-   * @returns {string} return.lastError - Most recent error message if any
-   * @returns {number} return.uptime - Buffer uptime in milliseconds
-   *
-   * @example
-   * ```javascript
-   * const health = repo.getBufferHealth();
-   * if (health.status === 'unhealthy') {
-   *   console.error('Buffer health degraded:', health.lastError);
-   * }
-   * ```
-   */
-  getBufferHealth() {
-    return this.batchBuffer.getHealth();
-  }
-
-  /**
-   * Force immediate flush of the batch buffer.
-   *
-   * Manually triggers a buffer flush regardless of size/time thresholds. Useful for
-   * testing, graceful shutdowns, or ensuring data persistence before critical operations.
-   *
-   * @returns {Promise<Object>} Flush operation result
-   * @returns {boolean} return.success - Whether flush succeeded
-   * @returns {number} return.flushedCount - Number of items flushed
-   * @returns {number} return.flushTime - Time taken for flush in milliseconds
-   * @returns {string} [return.error] - Error message if flush failed
-   *
-   * @example
-   * ```javascript
-   * // Ensure all pending logs are saved before shutdown
-   * const result = await repo.flushBuffer();
-   * if (result.success) {
-   *   console.log(`Flushed ${result.flushedCount} logs in ${result.flushTime}ms`);
-   * } else {
-   *   console.error('Flush failed:', result.error);
-   * }
-   * ```
-   */
-  async flushBuffer() {
-    return await this.batchBuffer.forceFlush();
-  }
-
-  /**
-   * Gracefully shutdown the repository and flush all pending logs.
-   *
-   * Ensures all buffered logs are persisted to ClickHouse before shutdown.
-   * Should be called during application shutdown to prevent data loss.
-   *
-   * @returns {Promise<void>}
-   *
-   * @example
-   * ```javascript
-   * // Graceful shutdown
-   * process.on('SIGTERM', async () => {
-   *   console.log('Shutting down repository...');
-   *   await repo.shutdown();
-   *   console.log('Repository shutdown complete');
-   *   process.exit(0);
-   * });
-   * ```
-   */
-  async shutdown() {
-    console.log('[ClickHouseRepository] Shutting down...');
-    await this.batchBuffer.shutdown();
-    console.log('[ClickHouseRepository] Shutdown complete');
-  }
+  // Note: shutdown() has been removed - this repository is stateless.
+  // Graceful shutdown is handled by LogProcessorWorker.stop() which
+  // flushes its BatchBuffer and acknowledges Redis messages.
 
   /**
    * Clear the query cache.
@@ -864,7 +765,6 @@ class ClickHouseRepository extends LogRepositoryContract {
  * @typedef {ClickHouseRepository} ClickHouseRepository
  * @property {Object} client - ClickHouse client instance
  * @property {string} tableName - ClickHouse table name
- * @property {BatchBuffer} batchBuffer - Intelligent batch buffer instance
  * @property {Map} FILTER_CONFIG - Field configuration for filtering (optimized Map)
  * @property {RegExp} QUOTE_PATTERN - Precompiled regex for quote escaping
  * @property {RegExp} BACKTICK_PATTERN - Precompiled regex for backtick escaping

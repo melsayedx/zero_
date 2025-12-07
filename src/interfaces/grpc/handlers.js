@@ -15,16 +15,16 @@ const grpc = require('@grpc/grpc-js');
  */
 function extractUserFromMetadata(metadata) {
   const jwtSecret = process.env.JWT_SECRET || 'default-secret-change-in-production';
-  
+
   try {
     const authMetadata = metadata.get('authorization');
-    
+
     if (!authMetadata || authMetadata.length === 0) {
       return null;
     }
 
     const authHeader = authMetadata[0];
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return null;
     }
@@ -48,18 +48,26 @@ function extractUserFromMetadata(metadata) {
  * This is a PRIMARY ADAPTER that depends on the IngestLogPort (input port)
  */
 class IngestLogsHandler {
-  constructor(ingestLogUseCase, verifyAppAccessUseCase) {
+  /**
+   * Create a new IngestLogsHandler instance.
+   *
+   * @param {Object} ingestLogUseCase - Log ingestion use case
+   * @param {Object} verifyAppAccessUseCase - App access verification use case
+   * @param {Object} [idempotencyStore] - Optional idempotency store for duplicate prevention
+   */
+  constructor(ingestLogUseCase, verifyAppAccessUseCase, idempotencyStore = null) {
     if (!ingestLogUseCase) {
       throw new Error('IngestLogUseCase is required');
     }
-    
+
     // Validate that the use case implements the input port interface
     if (typeof ingestLogUseCase.execute !== 'function') {
       throw new Error('IngestLogUseCase must implement the execute() method from IngestLogPort');
     }
-    
+
     this.ingestLogUseCase = ingestLogUseCase;
     this.verifyAppAccessUseCase = verifyAppAccessUseCase;
+    this.idempotencyStore = idempotencyStore;
   }
 
   /**
@@ -71,11 +79,26 @@ class IngestLogsHandler {
     try {
       // Extract and verify authentication
       const user = extractUserFromMetadata(call.metadata);
-      
+
       if (!user) {
         const error = new Error('Authentication required');
         error.code = grpc.status.UNAUTHENTICATED;
         return callback(error);
+      }
+
+      // Check for idempotency key in metadata
+      let idempotencyKey = null;
+      if (this.idempotencyStore) {
+        const idempotencyMetadata = call.metadata.get('idempotency-key');
+        if (idempotencyMetadata && idempotencyMetadata.length > 0) {
+          idempotencyKey = idempotencyMetadata[0];
+
+          // Check if we have a cached response
+          const cachedResponse = await this.idempotencyStore.get(idempotencyKey);
+          if (cachedResponse) {
+            return callback(null, cachedResponse);
+          }
+        }
       }
 
       const { logs } = call.request;
@@ -132,8 +155,9 @@ class IngestLogsHandler {
       const result = await this.ingestLogUseCase.execute(logsData);
 
       // Transform IngestResult to gRPC response
+      let response;
       if (result.isFullSuccess() || result.isPartialSuccess()) {
-        return callback(null, {
+        response = {
           success: true,
           message: 'Log data accepted',
           accepted: result.accepted,
@@ -144,9 +168,9 @@ class IngestLogsHandler {
             index: err.index,
             error: err.error
           }))
-        });
+        };
       } else {
-        return callback(null, {
+        response = {
           success: false,
           message: 'Invalid log data',
           accepted: result.accepted,
@@ -157,8 +181,16 @@ class IngestLogsHandler {
             index: err.index,
             error: err.error
           }))
-        });
+        };
       }
+
+      // Cache response if idempotency key was provided (fire-and-forget)
+      if (idempotencyKey && this.idempotencyStore) {
+        this.idempotencyStore.set(idempotencyKey, response)
+          .catch(err => console.error('[gRPC] Idempotency cache error:', err.message));
+      }
+
+      return callback(null, response);
     } catch (error) {
       console.error('IngestLogs gRPC error:', error);
       // Return error as gRPC response (not gRPC error status)
@@ -224,12 +256,12 @@ class GetLogsByAppIdHandler {
     if (!getLogsByAppIdUseCase) {
       throw new Error('GetLogsByAppIdUseCase is required');
     }
-    
+
     // Validate that the use case implements the execute method
     if (typeof getLogsByAppIdUseCase.execute !== 'function') {
       throw new Error('GetLogsByAppIdUseCase must implement the execute() method');
     }
-    
+
     this.getLogsByAppIdUseCase = getLogsByAppIdUseCase;
     this.verifyAppAccessUseCase = verifyAppAccessUseCase;
   }
@@ -243,7 +275,7 @@ class GetLogsByAppIdHandler {
     try {
       // Extract and verify authentication
       const user = extractUserFromMetadata(call.metadata);
-      
+
       if (!user) {
         const error = new Error('Authentication required');
         error.code = grpc.status.UNAUTHENTICATED;
@@ -307,7 +339,7 @@ class GetLogsByAppIdHandler {
 
     } catch (error) {
       console.error('GetLogsByAppId gRPC error:', error);
-      
+
       // Handle validation and business logic errors
       if (error.message.includes('app_id') || error.message.includes('Limit')) {
         return callback(null, {

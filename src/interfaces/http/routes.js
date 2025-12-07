@@ -1,4 +1,5 @@
 const createAuthMiddleware = require('../middleware/auth.middleware');
+const { createIdempotencyMiddleware, createIdempotencyHook } = require('../middleware/idempotency.middleware');
 
 // Shared schema for a single log entry
 const logEntrySchema = {
@@ -21,6 +22,18 @@ const logEntrySchema = {
  */
 async function setupRoutes(fastify, controllers) {
   const authMiddleware = createAuthMiddleware();
+
+  // Create idempotency middleware if store is available
+  let idempotencyMiddleware = null;
+  let idempotencyHook = null;
+  if (controllers.idempotencyStore) {
+    idempotencyMiddleware = createIdempotencyMiddleware(controllers.idempotencyStore, {
+      enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true'
+    });
+    idempotencyHook = createIdempotencyHook(controllers.idempotencyStore, {
+      enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true'
+    });
+  }
 
   // =================================
   // CORE ROUTES (No MongoDB Required)
@@ -92,8 +105,9 @@ async function setupRoutes(fastify, controllers) {
   // LOG INGESTION & RETRIEVAL ROUTES (Simplified)
   // =============================================
 
-  // Ingest logs (no authentication for now)
-  fastify.post('/api/logs', {
+  // Ingest logs (with optional idempotency support)
+  // Send Idempotency-Key header to prevent duplicate processing
+  const ingestRouteOptions = {
     schema: {
       body: {
         oneOf: [
@@ -129,7 +143,16 @@ async function setupRoutes(fastify, controllers) {
         }
       }
     }
-  }, async (request, reply) => await controllers.ingestLogController.handle(request, reply));
+  };
+
+  // Add idempotency handlers if available
+  if (idempotencyMiddleware) {
+    ingestRouteOptions.preHandler = idempotencyMiddleware;
+    ingestRouteOptions.onSend = idempotencyHook;
+  }
+
+  fastify.post('/api/logs', ingestRouteOptions,
+    async (request, reply) => await controllers.ingestLogController.handle(request, reply));
 
   // Retrieve logs by app_id (no authentication for now)
   fastify.get('/api/logs/:app_id', {

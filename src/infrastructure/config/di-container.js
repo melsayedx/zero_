@@ -25,6 +25,7 @@ const BatchBuffer = require('../buffers/batch-buffer');
 const RedisRetryStrategy = require('../retry-strategies/redis-retry-strategy');
 const RedisQueryCache = require('../cache/redis-query.cache');
 const { getRedisClient, closeRedisConnection } = require('../database/redis');
+const RedisIdempotencyStore = require('../idempotency/redis-idempotency.store');
 
 /**
  * @typedef {Object} DIContainerInstances
@@ -137,16 +138,8 @@ class DIContainer {
       }
     );
 
-    // Inject BatchBuffer with retry strategy into repository
-    this.instances.clickhouseRepository.batchBuffer = new BatchBuffer(
-      this.instances.clickhouseRepository,
-      this.instances.clickhouseRetryStrategy,
-      {
-        maxBatchSize: parseInt(process.env.CLICKHOUSE_BATCH_SIZE) || 25000,
-        maxWaitTime: parseInt(process.env.CLICKHOUSE_BATCH_WAIT_TIME) || 500,
-        enableLogging: process.env.ENABLE_BATCH_BUFFER_LOGGING !== 'false'
-      }
-    );
+    // Note: BatchBuffer is NOT injected here - it's owned by LogProcessorWorker
+    // for crash-proof Redis Stream processing with XACK after ClickHouse insert
 
     this.instances.redisLogRepository = new RedisLogRepository(this.instances.redisClient, {
       queueKey: process.env.REDIS_LOG_QUEUE_KEY,
@@ -155,6 +148,16 @@ class DIContainer {
 
     // Default log repository now uses Redis for high-throughput ingestion
     this.instances.logRepository = this.instances.redisLogRepository;
+
+    // Idempotency store for duplicate request prevention
+    this.instances.idempotencyStore = new RedisIdempotencyStore(
+      this.instances.redisClient,
+      {
+        ttl: parseInt(process.env.IDEMPOTENCY_TTL_SECONDS) || 86400, // 24 hours
+        prefix: process.env.IDEMPOTENCY_KEY_PREFIX || 'idempotency',
+        enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true'
+      }
+    );
 
     console.log('[DIContainer] Repositories initialized');
   }
@@ -276,6 +279,22 @@ class DIContainer {
       this.instances.validationService
     );
 
+    // Initialize gRPC handlers
+    this.instances.ingestLogsHandler = new IngestLogsHandler(
+      this.instances.ingestLogUseCase,
+      null, // verifyAppAccessUseCase - not available without MongoDB
+      this.instances.idempotencyStore
+    );
+
+    this.instances.healthCheckHandler = new HealthCheckHandler(
+      this.instances.logRepository
+    );
+
+    this.instances.getLogsByAppIdHandler = new GetLogsByAppIdHandler(
+      this.instances.getLogsByAppIdUseCase,
+      null // verifyAppAccessUseCase - not available without MongoDB
+    );
+
     console.log('[DIContainer] Interface adapters initialized');
   }
 
@@ -291,14 +310,17 @@ class DIContainer {
       ingestLogController: this.instances.ingestLogController,
       healthCheckController: this.instances.healthCheckController,
       getLogsByAppIdController: this.instances.getLogsByAppIdController,
-      statsController: this.instances.statsController
+      statsController: this.instances.statsController,
+      idempotencyStore: this.instances.idempotencyStore
     };
     return controllers;
   }
 
   getHandlers() {
     const handlers = {
-      healthCheckHandler: this.instances.healthCheckHandler
+      ingestLogsHandler: this.instances.ingestLogsHandler,
+      healthCheckHandler: this.instances.healthCheckHandler,
+      getLogsByAppIdHandler: this.instances.getLogsByAppIdHandler
     };
     return handlers;
   }
@@ -357,9 +379,8 @@ class DIContainer {
 
   async _cleanupRepositories() {
     console.log('[DIContainer] Cleaning up repositories...');
-    if (this.instances.clickhouseRepository) {
-      await this.instances.clickhouseRepository.shutdown();
-    }
+    // Note: ClickHouseRepository is stateless - no buffer to flush
+    // BatchBuffer cleanup happens in _cleanupWorkers via LogProcessorWorker.stop()
     if (this.instances.clickhouseRetryStrategy) {
       await this.instances.clickhouseRetryStrategy.shutdown();
     }

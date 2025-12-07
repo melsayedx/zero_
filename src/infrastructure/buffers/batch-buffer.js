@@ -232,7 +232,7 @@ class BatchBuffer {
     this.resetFlushTimer();
 
     try {
-      // Call repository's generic save method
+      // Call repository's save method
       await this.repository.save(logsToFlush);
 
       // Update metrics efficiently
