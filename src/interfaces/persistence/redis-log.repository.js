@@ -62,20 +62,9 @@ class RedisLogRepository extends LogRepositoryContract {
       return;
     }
 
-    // Serialize each log for Redis storage
-    // All entries are normalized plain objects from validation strategies
-    const serializedLogs = logEntries.map(entry => {
-      return JSON.stringify({
-        app_id: entry.appId.value,
-        message: entry.message,
-        source: entry.source,
-        level: entry.level.value,
-        environment: entry.environment,
-        metadata: entry.metadata.value,
-        trace_id: entry.traceId.value,
-        user_id: entry.userId
-      });
-    });
+    // Serialize entries directly - Redis is just a queue
+    // LogProcessorWorker re-normalizes when reading from Redis
+    const serializedLogs = logEntries.map(entry => JSON.stringify(entry));
 
     try {
       await this.client.rpush(this.queueKey, serializedLogs);

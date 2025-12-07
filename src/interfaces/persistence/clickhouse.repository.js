@@ -1,78 +1,5 @@
 const LogRepositoryContract = require('../../domain/contracts/log-repository.contract');
-const LogEntry = require('../../domain/entities/log-entry');
-
-// TODO: Understand the code in this module and batch buffer
-
-/**
- * In-Memory Query Cache - Fast caching for single-instance deployments
- */
-class InMemoryQueryCache {
-  constructor(maxSize = 50) {
-    this.cache = new Map();
-    this.maxSize = maxSize;
-  }
-
-  async get(key) {
-    return this.cache.get(key) || null;
-  }
-
-  async set(key, value) {
-    if (this.cache.size >= this.maxSize) {
-      // LRU eviction - remove oldest entry
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-    }
-    this.cache.set(key, value);
-  }
-
-  async clear() {
-    this.cache.clear();
-  }
-}
-
-/**
- * Redis Query Cache - Distributed caching for multi-instance deployments
- */
-class RedisQueryCache {
-  constructor(redisClient, prefix = 'clickhouse:query', ttl = 3600) {
-    this.redis = redisClient;
-    this.prefix = prefix;
-    this.ttl = ttl; // 1 hour default TTL
-  }
-
-  getKey(key) {
-    return `${this.prefix}:${key}`;
-  }
-
-  async get(key) {
-    try {
-      const data = await this.redis.get(this.getKey(key));
-      return data ? JSON.parse(data) : null;
-    } catch (error) {
-      // Fallback to no cache on error
-      return null;
-    }
-  }
-
-  async set(key, value) {
-    try {
-      await this.redis.setex(this.getKey(key), this.ttl, JSON.stringify(value));
-    } catch (error) {
-      // Silently fail - caching is not critical
-    }
-  }
-
-  async clear() {
-    try {
-      const keys = await this.redis.keys(`${this.prefix}:*`);
-      if (keys.length > 0) {
-        await this.redis.del(keys);
-      }
-    } catch (error) {
-      // Silently fail
-    }
-  }
-}
+const InMemoryQueryCache = require('../../infrastructure/cache/in-memory-query.cache');
 
 /**
  * ClickHouse Repository - High-performance log storage with intelligent batching.
@@ -88,75 +15,50 @@ class RedisQueryCache {
  * - Automatic field escaping and type handling
  * - Health monitoring and performance metrics
  * - Cursor-based pagination for efficient log retrieval
+ * - Pluggable query cache (in-memory or distributed)
  *
  * The repository enforces app_id as a required filter for query performance and supports
  * complex filtering with operators (=, !=, >, <, >=, <=, IN, LIKE, BETWEEN).
  *
  * @example
  * ```javascript
- * // Create repository with custom batch settings
- * const repo = new ClickHouseRepository(client, {
- *   tableName: 'logs',
- *   maxBatchSize: 25000,
- *   maxWaitTime: 500,
- *   compression: true
- * });
- *
- * // Save logs (uses intelligent batching)
- * await repo.save(logEntries);
+ * // Create repository with custom cache
+ * const cache = new RedisQueryCache(redisClient, { prefix: 'logs:cache' });
+ * const repo = new ClickHouseRepository(client, { queryCache: cache });
  *
  * // Query logs with filtering and pagination
  * const result = await repo.findBy({
  *   filter: { app_id: 'my-app', level: 'ERROR' },
- *   limit: 100,
- *   cursor: null,
- *   sort: { field: 'timestamp', order: 'DESC' }
+ *   limit: 100
  * });
- *
- * // Get performance metrics
- * const stats = await repo.getStats();
- * const bufferMetrics = repo.getBufferMetrics();
  * ```
  */
 class ClickHouseRepository extends LogRepositoryContract {
   /**
    * Create a new ClickHouse repository instance.
    *
-   * Initializes the repository with a ClickHouse client and configures intelligent batching
-   * for optimal performance. The batch buffer automatically accumulates logs and flushes them
-   * when size or time thresholds are reached.
-   *
    * @param {Object} client - ClickHouse client instance
    * @param {Object} [options={}] - Configuration options
    * @param {string} [options.tableName='logs'] - ClickHouse table name
-   * @param {number} [options.maxBatchSize=25000] - Maximum batch size before flush
-   * @param {number} [options.maxWaitTime=500] - Maximum wait time in ms before flush
-   * @param {boolean} [options.compression=true] - Enable compression for batches
-   * @param {Object} [options.redisClient] - Redis client for distributed query caching
-   * @param {string} [options.cachePrefix='clickhouse:query'] - Redis cache key prefix
-   * @param {number} [options.maxCacheSize=50] - In-memory cache size (when no Redis)
+   * @param {QueryCacheContract} [options.queryCache] - Query cache (defaults to InMemoryQueryCache)
    *
    * @example
    * ```javascript
    * const repo = new ClickHouseRepository(client, {
    *   tableName: 'application_logs',
-   *   maxBatchSize: 50000,
-   *   maxWaitTime: 1000
+   *   queryCache: new RedisQueryCache(redisClient)
    * });
    * ```
    */
-  constructor(client, redisClient, options = {}) {
+  constructor(client, options = {}) {
     super();
     this.client = client;
-    this.redisClient = redisClient;
     this.tableName = options.tableName || 'logs';
 
     // BatchBuffer will be injected later by DI container
-    // This allows for different retry strategies per repository
     this.batchBuffer = null;
 
     // Filter configuration defines supported fields and their properties
-    // Optimized as Map for O(1) lookups instead of O(n) object property access
     this.FILTER_CONFIG = new Map([
       ['app_id', { type: 'string', indexed: true, required: true }],
       ['timestamp', { type: 'datetime', indexed: true }],
@@ -173,11 +75,8 @@ class ClickHouseRepository extends LogRepositoryContract {
     this.QUOTE_PATTERN = /'/g;
     this.BACKTICK_PATTERN = /`/g;
 
-    // Query cache for commonly used query patterns
-    // Use Redis for multi-instance deployments, in-memory Map for single instance
-    this.queryCache = options.redisClient ?
-      new RedisQueryCache(options.redisClient, options.cachePrefix || 'clickhouse:query') :
-      new InMemoryQueryCache(options.maxCacheSize || 50);
+    // Query cache - use provided cache or default to in-memory
+    this.queryCache = options.queryCache || new InMemoryQueryCache();
 
     // Health check cache to avoid repeated checks within short intervals
     this.lastHealthCheck = null;
@@ -185,75 +84,32 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Save log entries using intelligent batch buffering.
+   * Save a batch of log entries directly to ClickHouse (called by BatchBuffer).
    *
-   * Logs are accumulated in an in-memory buffer and automatically flushed to ClickHouse
-   * in large batches when either the size threshold (25,000 logs) or time threshold (500ms)
-   * is reached. This optimization dramatically reduces database load and improves throughput
-   * while maintaining low-latency ingestion.
+   * Converts normalized log entries (with primitives from LogEntry.normalize())
+   * to ClickHouse format and performs optimized batch insertion.
    *
-   * @param {LogEntry[]} logEntries - Array of LogEntry instances to save
-   * @throws {Error} If logEntries is not an array or is empty
-   *
-   * @example
-   * ```javascript
-   * const logs = [
-   *   new LogEntry({ app_id: 'my-app', level: 'INFO', message: 'Hello world' }),
-   *   new LogEntry({ app_id: 'my-app', level: 'ERROR', message: 'Something failed' })
-   * ];
-   *
-   * await repo.save(logs); // Buffered for batch insertion
-   * ```
+   * @param {Array<Object>} logs - Normalized log entries from BatchBuffer
+   * @returns {Promise<void>} Resolves when batch is successfully inserted
    */
-  async save(logEntries) {
-    if (!Array.isArray(logEntries) || logEntries.length === 0) {
-      throw new Error('logEntries must be a non-empty array');
-    }
-
-    // Optimized: Pre-allocate array and avoid intermediate object creation
-    const values = new Array(logEntries.length);
-    for (let i = 0; i < logEntries.length; i++) {
-      const logEntry = logEntries[i];
-      // Create final object directly without intermediate toObject() call
+  async save(logs) {
+    // Convert camelCase (from LogEntry.normalize) to snake_case for ClickHouse
+    const values = new Array(logs.length);
+    for (let i = 0; i < logs.length; i++) {
+      const log = logs[i];
       values[i] = {
-        app_id: logEntry.appId.value,
-        message: logEntry.message,
-        source: logEntry.source,
-        level: logEntry.level.value,
-        environment: logEntry.environment,
-        metadata: logEntry.metadata.string,
-        trace_id: logEntry.traceId.value,
-        user_id: logEntry.userId
-        // id and timestamp omitted - ClickHouse handles automatically
+        app_id: log.appId,
+        message: log.message,
+        source: log.source,
+        level: log.level,
+        environment: log.environment,
+        metadata: log.metadataString,  // Pre-serialized JSON string
+        trace_id: log.traceId,
+        user_id: log.userId
+        // id and timestamp omitted - ClickHouse generates automatically
       };
     }
 
-    try {
-      // Add to intelligent batch buffer
-      // Buffer will automatically flush when size or time threshold is reached
-      await this.batchBuffer.add(values);
-    } catch (error) {
-      console.error('[ClickHouseRepository] Buffer add error:', {
-        error: error.message,
-        table: this.tableName,
-        recordCount: values.length
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Save a batch of log values directly to ClickHouse (used by BatchBuffer).
-   *
-   * This method performs the actual ClickHouse insertion with optimized settings
-   * for maximum performance. It uses ClickHouse's async insert capabilities with
-   * compression and batch sizing optimizations.
-   *
-   * @param {Array<Object>} values - Pre-processed log values array
-   * @returns {Promise<void>} Resolves when batch is successfully inserted
-   * @private
-   */
-  async saveBatch(values) {
     return await this.client.insert({
       table: this.tableName,
       values: values,

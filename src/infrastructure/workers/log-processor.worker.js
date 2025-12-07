@@ -1,4 +1,4 @@
-const LogEntry = require('../../domain/entities/log-entry');
+// LogEntry not needed - data from Redis is already normalized
 const RedisStreamQueue = require('../queues/redis-stream-queue');
 const BatchBuffer = require('../buffers/batch-buffer');
 
@@ -43,7 +43,7 @@ class LogProcessorWorker {
    * Create a new LogProcessorWorker instance.
    *
    * @param {Redis} redisClient - Configured Redis client for stream operations
-   * @param {Object} repository - Repository for database persistence (must have saveBatch method)
+   * @param {Object} repository - Repository for database persistence (must have save method)
    * @param {RetryStrategy} retryStrategy - Strategy for handling failed batch operations
    * @param {Object} [options={}] - Configuration options
    * @param {string} [options.streamKey='logs:stream'] - Redis Stream key
@@ -59,8 +59,8 @@ class LogProcessorWorker {
     if (!redisClient) {
       throw new Error('Redis client is required');
     }
-    if (!repository || typeof repository.saveBatch !== 'function') {
-      throw new Error('Repository with saveBatch method is required');
+    if (!repository || typeof repository.save !== 'function') {
+      throw new Error('Repository with save method is required');
     }
     if (!retryStrategy || typeof retryStrategy.queueForRetry !== 'function') {
       throw new Error('Retry strategy with queueForRetry method is required');
@@ -233,15 +233,14 @@ class LogProcessorWorker {
         return;
       }
 
-      // Normalize log data with Redis ID attached for ACK tracking
+      // Data from Redis is already normalized (camelCase)
+      // Just attach Redis ID for ACK tracking
       const logEntries = messages.map(msg => {
         try {
-          const data = msg.data;
-          // Use normalize for consistency with validation strategies
-          const normalized = LogEntry.normalize(data);
+          const entry = msg.data;
           // Attach Redis message ID for ACK tracking
-          normalized._redisId = msg.id;
-          return normalized;
+          entry._redisId = msg.id;
+          return entry;
         } catch (error) {
           console.error('[LogProcessorWorker] Failed to parse log entry:', error.message);
           // ACK invalid messages to remove them from stream

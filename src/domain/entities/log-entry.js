@@ -7,16 +7,18 @@ const AppId = require('../value-objects/app-id');
  * LogEntry Domain Entity - Log validation and normalization.
  *
  * This class provides static methods for validating and normalizing log entry data.
- * It uses value objects (AppId, LogLevel, Metadata, TraceId) to ensure data integrity.
+ * It uses value objects (AppId, LogLevel, Metadata, TraceId) internally for validation,
+ * but returns plain objects with primitive values for easy database insertion.
  *
  * Key features:
  * - Comprehensive field validation with length and type constraints
- * - Value object composition for type safety
+ * - Value object validation for type safety
+ * - Returns primitives for direct DB insertion
  * - Batch processing support for high-throughput scenarios
  *
  * @example
  * ```javascript
- * // Normalize a single log entry
+ * // Normalize a single log entry - returns primitives
  * const normalized = LogEntry.normalize({
  *   app_id: 'my-app',
  *   message: 'User logged in',
@@ -24,10 +26,9 @@ const AppId = require('../value-objects/app-id');
  *   source: 'auth-service'
  * });
  *
- * // normalized.appId is an AppId value object
- * // normalized.level is a LogLevel value object
- * console.log(normalized.appId.value);  // 'my-app'
- * console.log(normalized.level.value);  // 'INFO'
+ * // All fields are now primitives (ready for DB)
+ * console.log(normalized.app_id);  // 'my-app'
+ * console.log(normalized.level);   // 'INFO'
  *
  * // Batch processing
  * const result = await LogEntry.createBatch(rawLogs);
@@ -119,21 +120,20 @@ class LogEntry {
    *
    * Performs comprehensive validation on raw log data including required fields,
    * string constraints, and data types. Returns validated primitive data ready
-   * for value object creation.
+   * for database insertion.
    *
    * @param {Object} data - Raw log entry data to validate and normalize
    * @returns {Object} Validated and normalized primitive log entry data
    *
    * @example
    * ```javascript
-   * // Validate and normalize log data
    * const normalized = LogEntry.normalize({
    *   app_id: 'my-app',
    *   message: 'Test message',
    *   level: 'INFO',
    *   source: 'test'
    * });
-   * // Result: { app_id: 'my-app', message: 'Test message', ... }
+   * // Result: { app_id: 'my-app', level: 'INFO', message: 'Test message', ... }
    * ```
    */
   static normalize(data = {}) {
@@ -157,25 +157,24 @@ class LogEntry {
     LogEntry._validateStringField('environment', data.environment, LogEntry.CONSTRAINTS.environment);
     LogEntry._validateStringField('user_id', data.user_id, LogEntry.CONSTRAINTS.user_id);
 
-    // Create validated value objects - normalize handles creation centrally
+    // Validate and extract primitive values from value objects
     const appId = AppId.create(data.app_id);
     const level = LogLevel.get(data.level);
     const metadata = Metadata.create(data.metadata ?? {});
     const traceId = TraceId.create(data.trace_id);
 
+    // Return plain object with camelCase keys (JavaScript convention)
+    // Persistence layer handles conversion to snake_case for database
     return {
-      // Value objects for domain usage
-      appId,
-      level,
-      metadata,
-      traceId,
-      // Primitives for direct access
+      appId: appId.value,
+      level: level.value,
       message: data.message,
       source: data.source,
-      environment: data.environment,
-      userId: data.user_id ?? null,
-      id: data.id,
-      timestamp: data.timestamp
+      environment: data.environment ?? null,
+      metadata: metadata.value,          // Object form for flexibility
+      metadataString: metadata.string,   // Pre-serialized for ClickHouse
+      traceId: traceId.value,
+      userId: data.user_id ?? null
     };
   }
 

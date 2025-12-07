@@ -61,7 +61,7 @@ class BatchBuffer {
    * can be any database implementation (ClickHouse, TimestampDB, etc.) that supports batch operations.
    * The retry strategy handles failed operations and can be configured for different storage backends.
    *
-   * @param {Object} repository - Repository instance with saveBatch method for database operations
+   * @param {Object} repository - Repository instance with save method for database operations
    * @param {RetryStrategy} retryStrategy - Strategy for handling failed operations
    * @param {Object} [options={}] - Configuration options for the buffer
    * @param {number} [options.maxBatchSize=100000] - Maximum logs per batch before auto-flush (1-1000000)
@@ -86,8 +86,8 @@ class BatchBuffer {
    */
   constructor(repository, retryStrategy, options = {}) {
     // Validate required parameters
-    if (!repository || typeof repository.saveBatch !== 'function') {
-      throw new Error('Valid repository with saveBatch method is required');
+    if (!repository || typeof repository.save !== 'function') {
+      throw new Error('Valid repository with save method is required');
     }
     if (!retryStrategy || typeof retryStrategy.queueForRetry !== 'function') {
       throw new Error('Valid retry strategy with queueForRetry method is required');
@@ -199,7 +199,7 @@ class BatchBuffer {
   /**
    * Flush the current buffer contents to the repository in a single batch operation.
    *
-   * This method performs the actual database insertion by calling the repository's saveBatch method.
+   * This method performs the actual database insertion by calling the repository's save method.
    * It prevents concurrent flushes and updates comprehensive metrics. Failed operations are
    * sent to a Redis-based dead letter queue for later processing by background workers.
    *
@@ -232,8 +232,8 @@ class BatchBuffer {
     this.resetFlushTimer();
 
     try {
-      // Call repository's generic saveBatch method
-      await this.repository.saveBatch(logsToFlush);
+      // Call repository's generic save method
+      await this.repository.save(logsToFlush);
 
       // Update metrics efficiently
       const flushTime = Date.now() - startTime;
@@ -479,8 +479,8 @@ class BatchBuffer {
       }
 
       try {
-        // Call repository's saveBatch method directly
-        await this.repository.saveBatch(this.buffer);
+        // Call repository's save method directly
+        await this.repository.save(this.buffer);
         this._updateMetricsAfterSuccess(this.buffer.length, 0);
         totalFlushed += this.buffer.length;
         this.buffer = [];
@@ -612,7 +612,7 @@ class BatchBuffer {
 
 /**
  * @typedef {BatchBuffer} BatchBuffer
- * @property {Object} repository - Repository instance with saveBatch method for database operations
+ * @property {Object} repository - Repository instance with save method for database operations
  * @property {RetryStrategy} retryStrategy - Strategy for handling failed operations
  * @property {number} maxBatchSize - Maximum logs per batch before auto-flush (1-1000000)
  * @property {number} maxWaitTime - Maximum time in ms to wait before auto-flush (100-30000)

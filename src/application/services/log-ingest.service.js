@@ -6,7 +6,7 @@
  * intelligent request coalescing to optimize throughput for high-volume scenarios while maintaining
  * low latency guarantees for individual requests.
  *
- * The service follows Clean Architecture principles by separating concerns across layers:
+ * The service follows Onion Architecture principles by separating concerns across layers:
  * - **Domain Layer**: Pure business logic and validation (IngestLogUseCase, LogEntry)
  * - **Application Layer**: Orchestration and cross-cutting concerns (this service)
  * - **Infrastructure Layer**: External systems and frameworks (RequestCoalescer, repositories)
@@ -58,7 +58,7 @@ class LogIngestionService {
   /**
    * Create a new LogIngestionService instance with dependency injection.
    *
-   * Initializes the service with injected dependencies following Clean Architecture principles.
+   * Initializes the service with injected dependencies following Onion Architecture principles.
    * The RequestCoalescer is injected rather than created internally, enabling better testability,
    * dependency management, and configuration flexibility. Configuration options control
    * coalescing behavior and performance characteristics.
@@ -96,13 +96,13 @@ class LogIngestionService {
       totalLogs: 0,
       coalescedRequests: 0
     };
-    
+
     console.log('[LogIngestionService] Initialized with config:', {
       useCoalescing: this.useCoalescing,
       coalescerEnabled: this.coalescer.enabled
     });
   }
-  
+
   /**
    * Ingest a single log entry or batch of log entries with automatic optimization.
    *
@@ -143,26 +143,26 @@ class LogIngestionService {
    */
   async ingest(data) {
     this.metrics.totalRequests++;
-    
+
     // Handle single log
     if (!Array.isArray(data)) {
       data = [data];
     }
-    
+
     this.metrics.totalLogs += data.length;
-    
+
     // If coalescing is enabled, add to coalescer
     if (this.useCoalescing && data.length < this.minBatchSize) {
       // Only coalesce smaller requests; large batches go direct
       this.metrics.coalescedRequests++;
       return this.coalescer.add(data);
     }
-    
+
     // Process directly (no coalescing for large batches)
     const results = await this.processBatch([data]);
     return results[0];
   }
-  
+
   /**
    * Process a batch of requests through the domain use case with optimized pre-allocation and error handling.
    *
@@ -264,7 +264,7 @@ class LogIngestionService {
       }
       return results;
     }
-    
+
     try {
       // Process through use case with raw logs
       const batchResult = await this.ingestUseCase.execute(allLogs);
@@ -327,7 +327,7 @@ class LogIngestionService {
       return results;
     }
   }
-  
+
   /**
    * Force flush any pending coalesced requests for immediate processing.
    *
@@ -354,7 +354,7 @@ class LogIngestionService {
       await this.coalescer.forceFlush();
     }
   }
-  
+
   /**
    * Get comprehensive statistics and metrics for the service and coalescer.
    *
@@ -394,14 +394,14 @@ class LogIngestionService {
           : 0
       }
     };
-    
+
     if (this.useCoalescing) {
       stats.coalescer = this.coalescer.getStats();
     }
-    
+
     return stats;
   }
-  
+
   /**
    * Update service configuration at runtime without requiring a restart.
    *
@@ -438,14 +438,14 @@ class LogIngestionService {
       this.useCoalescing = config.useCoalescing;
       this.coalescer.setEnabled(config.useCoalescing);
     }
-    
+
     if (config.coalescerMaxWaitTime || config.coalescerMaxBatchSize) {
       this.coalescer.updateConfig({
         maxWaitTime: config.coalescerMaxWaitTime,
         maxBatchSize: config.coalescerMaxBatchSize
       });
     }
-    
+
     console.log('[LogIngestionService] Config updated:', config);
   }
 }

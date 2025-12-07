@@ -23,6 +23,7 @@ const RequestCoalescer = require('../request-coalescing/request-coalescer');
 
 const BatchBuffer = require('../buffers/batch-buffer');
 const RedisRetryStrategy = require('../retry-strategies/redis-retry-strategy');
+const RedisQueryCache = require('../cache/redis-query.cache');
 const { getRedisClient, closeRedisConnection } = require('../database/redis');
 
 /**
@@ -122,9 +123,18 @@ class DIContainer {
       }
     );
 
+    // Query cache for ClickHouse (uses Redis for distributed deployments)
+    this.instances.clickhouseQueryCache = new RedisQueryCache(
+      this.instances.redisClient,
+      { prefix: 'clickhouse:query', ttl: 3600 }
+    );
+
     this.instances.clickhouseRepository = new ClickHouseRepository(
       this.instances.clickhouseClient,
-      this.instances.redisClient
+      {
+        tableName: process.env.CLICKHOUSE_TABLE || 'logs',
+        queryCache: this.instances.clickhouseQueryCache
+      }
     );
 
     // Inject BatchBuffer with retry strategy into repository

@@ -80,18 +80,8 @@ async function validateBatch(logsDataArray) {
     for (let i = 0; i < length; i++) {
       const data = logsDataArray[i];
       try {
-        const normalized = LogEntry.normalize(data);
-        validEntries[validCount++] = {
-          app_id: normalized.appId,
-          level: normalized.level,
-          message: normalized.message,
-          source: normalized.source,
-          environment: normalized.environment,
-          metadata: normalized.metadata,
-          metadataString: normalized.metadata.string,
-          trace_id: normalized.traceId,
-          user_id: normalized.userId
-        };
+        // normalize() now returns primitives directly
+        validEntries[validCount++] = LogEntry.normalize(data);
       } catch (error) {
         errors.push({ data, error: error.message });
       }
