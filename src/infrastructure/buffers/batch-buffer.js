@@ -67,6 +67,7 @@ class BatchBuffer {
    * @param {number} [options.maxBatchSize=100000] - Maximum logs per batch before auto-flush (1-1000000)
    * @param {number} [options.maxWaitTime=1000] - Maximum time in ms to wait before auto-flush (100-30000)
    * @param {boolean} [options.enableLogging=true] - Whether to enable console logging
+   * @param {Function} [options.onFlushSuccess] - Callback invoked after successful flush with flushed logs
    *
    * @example
    * ```javascript
@@ -99,6 +100,9 @@ class BatchBuffer {
     this.maxBatchSize = Math.max(1, Math.min(1000000, options.maxBatchSize || 100000));
     this.maxWaitTime = Math.max(100, Math.min(30000, options.maxWaitTime || 1000));
     this.enableLogging = options.enableLogging !== false;
+
+    // Optional callback for crash-proof ACK (called after successful DB persistence)
+    this.onFlushSuccess = typeof options.onFlushSuccess === 'function' ? options.onFlushSuccess : null;
 
     // Buffer state
     this.buffer = [];
@@ -134,7 +138,7 @@ class BatchBuffer {
       });
     }
   }
-  
+
   /**
    * Add an array of log entries to the buffer for batch processing.
    *
@@ -191,7 +195,7 @@ class BatchBuffer {
       await this.flush();
     }
   }
-  
+
   /**
    * Flush the current buffer contents to the repository in a single batch operation.
    *
@@ -234,6 +238,16 @@ class BatchBuffer {
       // Update metrics efficiently
       const flushTime = Date.now() - startTime;
       this._updateMetricsAfterSuccess(logsToFlush.length, flushTime);
+
+      // Invoke ACK callback for crash-proof processing (e.g., Redis XACK)
+      if (this.onFlushSuccess) {
+        try {
+          await this.onFlushSuccess(logsToFlush);
+        } catch (ackError) {
+          // Log but don't fail - data is already persisted
+          console.error('[BatchBuffer] onFlushSuccess callback error:', ackError.message);
+        }
+      }
 
       if (this.enableLogging) {
         console.log('[BatchBuffer] Flushed successfully:', {
@@ -291,7 +305,7 @@ class BatchBuffer {
     this.metrics.lastFlushSize = logCount;
   }
 
-  
+
   /**
    * Start the periodic flush timer for time-based automatic flushing.
    *
@@ -341,13 +355,13 @@ class BatchBuffer {
     // Only reset timer if buffer is empty or if we're not in high-throughput mode
     // This optimization reduces timer reset frequency during rapid flushes
     const shouldResetTimer = this.buffer.length === 0 ||
-                             (this.flushTimer && this.buffer.length < this.maxBatchSize * 0.1);
+      (this.flushTimer && this.buffer.length < this.maxBatchSize * 0.1);
 
     if (!this.isShuttingDown && shouldResetTimer) {
       this.startFlushTimer();
     }
   }
-  
+
   /**
    * Get the current number of log entries in the buffer.
    *
@@ -370,7 +384,7 @@ class BatchBuffer {
   size() {
     return this.buffer.length;
   }
-  
+
   /**
    * Get comprehensive metrics about buffer performance and operation.
    *
@@ -407,7 +421,7 @@ class BatchBuffer {
       isFlushing: this.isFlushing
     };
   }
-  
+
   /**
    * Perform graceful shutdown with guaranteed final flush of remaining logs.
    *
@@ -508,7 +522,7 @@ class BatchBuffer {
       failed: totalFailed
     };
   }
-  
+
   /**
    * Force an immediate flush of the buffer, bypassing normal timing and size triggers.
    *
@@ -533,7 +547,7 @@ class BatchBuffer {
     console.log('[BatchBuffer] Force flush requested');
     return await this.flush();
   }
-  
+
   /**
    * Get comprehensive health status and operational metrics for the buffer.
    *

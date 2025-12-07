@@ -1,4 +1,3 @@
-const LogEntry = require('../../../domain/entities/log-entry');
 const IngestResult = require('./ingest-result');
 const IngestLogContract = require('../../../domain/contracts/ingest-log.contract');
 
@@ -31,12 +30,35 @@ const IngestLogContract = require('../../../domain/contracts/ingest-log.contract
  * ```
  */
 class IngestLogUseCase extends IngestLogContract {
-  constructor(logRepository) {
+  /**
+   * Create an IngestLogUseCase instance.
+   *
+   * @param {LogRepository} logRepository - Repository for persisting log entries
+   * @param {ValidationStrategyContract} validationStrategy - Strategy for validating log entries
+   */
+  constructor(logRepository, validationStrategy) {
     super();
-    if (!logRepository  || typeof logRepository.save !== 'function') {
+    if (!logRepository || typeof logRepository.save !== 'function') {
       throw new Error('LogRepository is required and must implement the save() method');
     }
+    if (!validationStrategy || typeof validationStrategy.validateBatch !== 'function') {
+      throw new Error('ValidationStrategy is required and must implement the validateBatch() method');
+    }
     this.logRepository = logRepository;
+    this.validationStrategy = validationStrategy;
+  }
+
+  /**
+   * Set the validation strategy at runtime.
+   *
+   * @param {ValidationStrategyContract} strategy - New validation strategy
+   * @throws {Error} If strategy doesn't implement validateBatch()
+   */
+  setValidationStrategy(strategy) {
+    if (!strategy || typeof strategy.validateBatch !== 'function') {
+      throw new Error('ValidationStrategy must implement the validateBatch() method');
+    }
+    this.validationStrategy = strategy;
   }
 
   /**
@@ -76,7 +98,7 @@ class IngestLogUseCase extends IngestLogContract {
       throw new Error('Input must be an array of log entries');
     }
 
-    const { validEntries: validLogEntries, errors } = await LogEntry.createBatch(logsData);
+    const { validEntries: validLogEntries, errors } = await this.validationStrategy.validateBatch(logsData);
 
     if (validLogEntries.length === 0) {
       const errorMessages = errors.map(error => error.error).join(', ');

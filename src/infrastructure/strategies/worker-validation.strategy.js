@@ -3,6 +3,7 @@
  *
  * Provides both synchronous and asynchronous validation methods.
  * Automatically chooses the best approach based on batch size and system load.
+ * Implements ValidationStrategyContract for use in IngestLogUseCase.
  *
  * Strategies:
  * - Small batches (< 100 logs): Use main thread (no overhead)
@@ -10,12 +11,16 @@
  * - Large batches (> 1000 logs): Use multiple workers in parallel
  */
 
-const WorkerPool = require('./worker-pool');
-const LogEntry = require('../../domain/entities/log-entry');
+const WorkerPool = require('../workers/worker-pool');
+const ValidationStrategyContract = require('../../domain/contracts/validation-strategy.contract');
+const SyncValidationStrategy = require('./sync-validation.strategy');
 
-class ValidationService {
+class WorkerValidationStrategy extends ValidationStrategyContract {
   constructor(options = {}) {
+    super();
     this.workerPool = new WorkerPool(options.workerPool);
+    // Use injected sync strategy or create default - Composite Pattern
+    this.defaultStrategy = options.defaultStrategy || new SyncValidationStrategy();
 
     // Configuration thresholds
     this.smallBatchThreshold = options.smallBatchThreshold || 50;   // Use main thread
@@ -26,8 +31,8 @@ class ValidationService {
     this.enableWorkerValidation = options.enableWorkerValidation !== false;
     this.forceWorkerValidation = options.forceWorkerValidation || false;
 
-    console.log('[ValidationService] Initialized with worker thread support');
-    console.log(`[ValidationService] Thresholds: small=${this.smallBatchThreshold}, medium=${this.mediumBatchThreshold}, large=${this.largeBatchThreshold}`);
+    console.log('[WorkerValidationStrategy] Initialized with worker thread support');
+    console.log(`[WorkerValidationStrategy] Thresholds: small=${this.smallBatchThreshold}, medium=${this.mediumBatchThreshold}, large=${this.largeBatchThreshold}`);
   }
 
   /**
@@ -38,7 +43,7 @@ class ValidationService {
 
     // Force main thread for small batches or when workers are disabled
     if (!this.enableWorkerValidation ||
-        (!this.forceWorkerValidation && batchSize <= this.smallBatchThreshold)) {
+      (!this.forceWorkerValidation && batchSize <= this.smallBatchThreshold)) {
       return await this.validateBatchSync(logsDataArray);
     }
 
@@ -59,7 +64,7 @@ class ValidationService {
     const startTime = Date.now();
 
     try {
-      const result = await LogEntry.createBatch(logsDataArray);
+      const result = await this.defaultStrategy.validateBatch(logsDataArray);
 
       const processingTime = Date.now() - startTime;
 
@@ -89,10 +94,8 @@ class ValidationService {
 
       const processingTime = Date.now() - startTime;
 
-      // Convert validated plain objects to LogEntry instances
-      result.validEntries = result.validEntries.map(data =>
-        LogEntry.create(data)
-      );
+      // Worker already outputs validated plain objects in the correct format
+      // No need to create LogEntry instances (would cause double validation)
 
       return {
         ...result,
@@ -104,7 +107,7 @@ class ValidationService {
       };
     } catch (error) {
       // Fallback to sync validation if worker fails
-      console.warn('[ValidationService] Worker validation failed, falling back to sync:', error.message);
+      console.warn('[WorkerValidationStrategy] Worker validation failed, falling back to sync:', error.message);
       return await this.validateBatchSync(logsDataArray);
     }
   }
@@ -158,7 +161,7 @@ class ValidationService {
         chunks: chunks.length
       };
     } catch (error) {
-      console.warn('[ValidationService] Parallel validation failed, falling back to sync:', error.message);
+      console.warn('[WorkerValidationStrategy] Parallel validation failed, falling back to sync:', error.message);
       return await this.validateBatchSync(logsDataArray);
     }
   }
@@ -184,7 +187,7 @@ class ValidationService {
       return await this.workerPool.execute('parse_json', { jsonString });
     } catch (error) {
       // Fallback to main thread
-      console.warn('[ValidationService] Worker JSON parsing failed, falling back to sync');
+      console.warn('[WorkerValidationStrategy] Worker JSON parsing failed, falling back to sync');
       return JSON.parse(jsonString);
     }
   }
@@ -209,7 +212,7 @@ class ValidationService {
       return result;
     } catch (error) {
       // Fallback to main thread
-      console.warn('[ValidationService] Worker protobuf decoding failed, falling back to sync:', error.message);
+      console.warn('[WorkerValidationStrategy] Worker protobuf decoding failed, falling back to sync:', error.message);
       return null; // Signal to use main thread
     }
   }
@@ -235,7 +238,7 @@ class ValidationService {
       return await this.workerPool.execute('transform_data', { rows });
     } catch (error) {
       // Fallback to main thread
-      console.warn('[ValidationService] Worker data transformation failed, falling back to sync');
+      console.warn('[WorkerValidationStrategy] Worker data transformation failed, falling back to sync');
       return rows.map(row => ({
         ...row,
         metadata: row.metadata ? JSON.parse(row.metadata) : {},
@@ -283,10 +286,10 @@ class ValidationService {
    * Graceful shutdown
    */
   async shutdown() {
-    console.log('[ValidationService] Shutting down...');
+    console.log('[WorkerValidationStrategy] Shutting down...');
     await this.workerPool.shutdown();
-    console.log('[ValidationService] Shutdown complete');
+    console.log('[WorkerValidationStrategy] Shutdown complete');
   }
 }
 
-module.exports = ValidationService;
+module.exports = WorkerValidationStrategy;

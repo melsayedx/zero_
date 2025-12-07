@@ -129,7 +129,7 @@ class WorkerPool extends EventEmitter {
     workerState.tasksCompleted++;
     workerState.busy = false;
 
-    const { requestId, type, data, error } = message;
+    const { requestId, data, error } = message;
     const pendingTask = this.pendingTasks.get(requestId);
 
     if (pendingTask) {
@@ -329,10 +329,26 @@ class WorkerPool extends EventEmitter {
       uptime: Date.now() - w.createdAt
     }));
 
+    // Task-type breakdown for queued tasks
+    const queuedByType = this.taskQueue.reduce((acc, task) => {
+      acc[task.type] = (acc[task.type] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Task-type breakdown for in-progress tasks
+    const inProgressByType = {};
+    for (const task of this.pendingTasks.values()) {
+      if (task.type) {
+        inProgressByType[task.type] = (inProgressByType[task.type] || 0) + 1;
+      }
+    }
+
     return {
       ...this.metrics,
       workers: workerStats,
       queueLength: this.taskQueue.length,
+      queuedByType,
+      inProgressByType,
       averageQueueTime: this.calculateAverageQueueTime(),
       timestamp: new Date().toISOString()
     };

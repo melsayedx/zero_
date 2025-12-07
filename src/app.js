@@ -3,7 +3,7 @@ const fastify = require('fastify');
 const DIContainer = require('./infrastructure/config/di-container');
 const setupRoutes = require('./interfaces/http/routes');
 const { setupGrpcServer, shutdownGrpcServer } = require('./interfaces/grpc/server');
-const createContentParserMiddleware = require('./interfaces/http/content-parser.middleware');
+const createContentParserMiddleware = require('./interfaces/middleware/content-parser.middleware');
 const logsOpenApiConfig = require('./infrastructure/openapi/logs-openapi');
 const cluster = require('cluster');
 
@@ -249,11 +249,11 @@ MongoDB: ${process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform'}
 if (require.main === module && !cluster.isWorker) {
   (async () => {
     const appInstance = await createApp();
-    
+
     // Setup signal handlers for standalone mode
     const shutdown = async (signal) => {
       console.log(`\n${signal} received. Starting graceful shutdown...`);
-      
+
       await appInstance.shutdown();
       process.exit(0);
     };

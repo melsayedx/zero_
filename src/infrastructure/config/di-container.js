@@ -16,7 +16,7 @@ const { StatsController } = require('../../interfaces/http/controllers');
 const { RegisterController, LoginController, MeController } = require('../../interfaces/http/auth.controllers');
 const { CreateAppController, ListAppsController, GetAppController } = require('../../interfaces/http/app.controllers');
 const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../../interfaces/grpc/handlers');
-const ValidationService = require('../workers/validation-service');
+const WorkerValidationStrategy = require('../strategies/worker-validation.strategy');
 const LogProcessorWorker = require('../workers/log-processor.worker');
 const LogIngestionService = require('../../application/services/log-ingest.service');
 const RequestCoalescer = require('../request-coalescing/request-coalescer');
@@ -28,7 +28,7 @@ const { getRedisClient, closeRedisConnection } = require('../database/redis');
 /**
  * @typedef {Object} DIContainerInstances
  * @property {import('../database/clickhouse').ClickHouseClient} clickhouseClient - ClickHouse database client
- * @property {ValidationService} validationService - Validation service with worker threads
+ * @property {WorkerValidationStrategy} validationService - Validation service with worker threads
  * @property {LogProcessorWorker} logProcessorWorker - Worker to move logs from Redis to ClickHouse
  * @property {ClickHouseRepository} clickhouseRepository - ClickHouse repository implementation
  * @property {RedisLogRepository} redisLogRepository - Redis repository implementation
@@ -152,7 +152,7 @@ class DIContainer {
   async _initializeWorkers() {
     console.log('[DIContainer] Phase 3: Initializing workers...');
 
-    this.instances.validationService = new ValidationService({
+    this.instances.validationService = new WorkerValidationStrategy({
       smallBatchThreshold: parseInt(process.env.VALIDATION_SMALL_BATCH_THRESHOLD) || 50,
       mediumBatchThreshold: parseInt(process.env.VALIDATION_MEDIUM_BATCH_THRESHOLD) || 500,
       largeBatchThreshold: parseInt(process.env.VALIDATION_LARGE_BATCH_THRESHOLD) || 2000,
@@ -166,7 +166,7 @@ class DIContainer {
     });
 
     // Initialize multiple Log Processor Workers for better parallelism
-    // Each worker consumes from Redis and saves to ClickHouse
+    // Each worker consumes from Redis Stream and saves to ClickHouse (crash-proof)
     const workerCount = parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 3; // 3 workers by default
     this.instances.logProcessorWorkers = [];
 
@@ -174,10 +174,16 @@ class DIContainer {
       const worker = new LogProcessorWorker(
         this.instances.redisClient,
         this.instances.clickhouseRepository,
+        this.instances.clickhouseRetryStrategy,
         {
-          queueKey: process.env.REDIS_LOG_QUEUE_KEY || 'logs:ingestion:queue',
-          batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 2000,  // Redis LPOP batch size
-          pollInterval: parseInt(process.env.WORKER_POLL_INTERVAL) || 5    // Faster polling
+          streamKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
+          groupName: process.env.REDIS_CONSUMER_GROUP || 'log-processors',
+          consumerName: `worker-${process.pid}-${i}`,
+          batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 2000,
+          maxBatchSize: parseInt(process.env.WORKER_BUFFER_BATCH_SIZE) || 100000,
+          maxWaitTime: parseInt(process.env.WORKER_BUFFER_WAIT_TIME) || 1000,
+          pollInterval: parseInt(process.env.WORKER_POLL_INTERVAL) || 5,
+          enableLogging: process.env.ENABLE_WORKER_LOGGING !== 'false'
         }
       );
 
@@ -196,9 +202,15 @@ class DIContainer {
     console.log('[DIContainer] Phase 4: Initializing application services...');
 
     // Use Cases
-    // IngestLogUseCase now uses Redis for fast "fire-and-forget"
+    // WorkerValidationStrategy auto-selects strategy based on batch size:
+    // - batch <= 50: SyncValidationStrategy (main thread)
+    // - batch > 50: Worker threads
+    // Can be switched at runtime via ingestLogUseCase.setValidationStrategy()
+
+    // IngestLogUseCase uses WorkerValidationStrategy for auto-selection
     this.instances.ingestLogUseCase = new IngestLogUseCase(
-      this.instances.redisLogRepository
+      this.instances.redisLogRepository,
+      this.instances.validationService
     );
 
     // GetLogsByAppIdUseCase still reads from ClickHouse

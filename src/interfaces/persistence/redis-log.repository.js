@@ -62,29 +62,22 @@ class RedisLogRepository extends LogRepositoryContract {
       return;
     }
 
-    // Serialize each log individually for Redis storage
-    // Why individual JSON.stringify instead of bulk?
-    // 1. Redis LPUSH/RPUSH operations work with individual strings
-    // 2. Allows atomic operations on individual logs
-    // 3. Easier error handling and debugging per log
-    // 4. Consistent with Redis list semantics
-    //
-    // Note: We create a Redis-specific serialization that keeps metadata as object
-    // (not string like toObject()) so it can be properly reconstructed by LogEntry.create()
+    // Serialize each log for Redis storage
+    // All entries are normalized plain objects from validation strategies
     const serializedLogs = logEntries.map(entry => {
-      const obj = entry.toObject();
-      // Convert metadata back from string to object for Redis storage
-      // This allows proper reconstruction when parsing from Redis
-      const redisObj = {
-        ...obj,
-        metadata: entry.metadata.value // Use the object form, not the string form
-      };
-      return JSON.stringify(redisObj);
+      return JSON.stringify({
+        app_id: entry.appId.value,
+        message: entry.message,
+        source: entry.source,
+        level: entry.level.value,
+        environment: entry.environment,
+        metadata: entry.metadata.value,
+        trace_id: entry.traceId.value,
+        user_id: entry.userId
+      });
     });
 
     try {
-      // Single atomic RPUSH operation for all logs - much more efficient
-      // than individual operations or pipeline with spread operator
       await this.client.rpush(this.queueKey, serializedLogs);
     } catch (error) {
       console.error('[RedisLogRepository] Failed to queue logs:', error);

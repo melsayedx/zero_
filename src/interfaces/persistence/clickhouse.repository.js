@@ -491,14 +491,14 @@ class ClickHouseRepository extends LogRepositoryContract {
       // Fill in dynamic parts
       return indexedConditions.length > 0
         ? cachedTemplate
-            .replace('__INDEXED_CONDITIONS__', indexedConditions.join(' AND '))
-            .replace('__WHERE_CLAUSE__', whereClause || '')
-            .replace('__ORDER_BY__', orderBy)
-            .replace('__LIMIT__', limit)
+          .replace('__INDEXED_CONDITIONS__', indexedConditions.join(' AND '))
+          .replace('__WHERE_CLAUSE__', whereClause || '')
+          .replace('__ORDER_BY__', orderBy)
+          .replace('__LIMIT__', limit)
         : cachedTemplate
-            .replace('__WHERE_CLAUSE__', whereClause)
-            .replace('__ORDER_BY__', orderBy)
-            .replace('__LIMIT__', limit);
+          .replace('__WHERE_CLAUSE__', whereClause)
+          .replace('__ORDER_BY__', orderBy)
+          .replace('__LIMIT__', limit);
     }
 
     // Build and cache query template
@@ -530,14 +530,14 @@ class ClickHouseRepository extends LogRepositoryContract {
     // Return filled template
     return indexedConditions.length > 0
       ? queryTemplate
-          .replace('__INDEXED_CONDITIONS__', indexedConditions.join(' AND '))
-          .replace('__WHERE_CLAUSE__', whereClause || '')
-          .replace('__ORDER_BY__', orderBy)
-          .replace('__LIMIT__', limit)
+        .replace('__INDEXED_CONDITIONS__', indexedConditions.join(' AND '))
+        .replace('__WHERE_CLAUSE__', whereClause || '')
+        .replace('__ORDER_BY__', orderBy)
+        .replace('__LIMIT__', limit)
       : queryTemplate
-          .replace('__WHERE_CLAUSE__', whereClause)
-          .replace('__ORDER_BY__', orderBy)
-          .replace('__LIMIT__', limit);
+        .replace('__WHERE_CLAUSE__', whereClause)
+        .replace('__ORDER_BY__', orderBy)
+        .replace('__LIMIT__', limit);
   }
 
 
@@ -789,14 +789,14 @@ class ClickHouseRepository extends LogRepositoryContract {
         timestamp: new Date().toISOString()
       };
     } catch (error) {
-      return { 
-        error: error.message, 
+      return {
+        error: error.message,
         buffer: this.batchBuffer.getMetrics(),
-        timestamp: new Date().toISOString() 
+        timestamp: new Date().toISOString()
       };
     }
   }
-  
+
   /**
    * Get current batch buffer performance metrics.
    *
@@ -821,7 +821,7 @@ class ClickHouseRepository extends LogRepositoryContract {
   getBufferMetrics() {
     return this.batchBuffer.getMetrics();
   }
-  
+
   /**
    * Get batch buffer health status.
    *
@@ -846,7 +846,7 @@ class ClickHouseRepository extends LogRepositoryContract {
   getBufferHealth() {
     return this.batchBuffer.getHealth();
   }
-  
+
   /**
    * Force immediate flush of the batch buffer.
    *
@@ -873,7 +873,7 @@ class ClickHouseRepository extends LogRepositoryContract {
   async flushBuffer() {
     return await this.batchBuffer.forceFlush();
   }
-  
+
   /**
    * Gracefully shutdown the repository and flush all pending logs.
    *
@@ -946,7 +946,7 @@ class ClickHouseRepository extends LogRepositoryContract {
 
     // Return cached result if within cache time window
     if (this.lastHealthCheck &&
-        (now - this.lastHealthCheck.timestamp) < this.healthCheckCacheTime) {
+      (now - this.lastHealthCheck.timestamp) < this.healthCheckCacheTime) {
       return {
         ...this.lastHealthCheck.result,
         cached: true,

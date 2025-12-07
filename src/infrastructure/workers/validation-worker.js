@@ -14,18 +14,38 @@
 
 const { parentPort } = require('worker_threads');
 const LogEntry = require('../../domain/entities/log-entry');
+const LogLevel = require('../../domain/value-objects/log-level');
 const protobuf = require('protobufjs');
 const path = require('path');
 
-// Worker message types
-const MESSAGE_TYPES = {
-  VALIDATE_BATCH: 'validate_batch',
-  PARSE_JSON: 'parse_json',
-  DECODE_PROTOBUF: 'decode_protobuf',
-  DECODE_PROTOBUF_BATCH: 'decode_protobuf_batch',
-  TRANSFORM_DATA: 'transform_data',
-  HEALTH_CHECK: 'health_check',
-  SHUTDOWN: 'shutdown'
+
+
+/**
+ * Handler function to get health check result
+ */
+function getHealthCheckResult() {
+  return {
+    healthy: true,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    protobufInitialized: protobufRoot !== null
+  };
+}
+
+// Shutdown message type (handled separately as it terminates process)
+const SHUTDOWN_MESSAGE = 'shutdown';
+
+/**
+ * Message type to handler function map
+ */
+const MESSAGE_HANDLERS = {
+  'validate_batch': (data) => validateBatch(data.logsDataArray),
+  'parse_json': (data) => parseJson(data.jsonString),
+  'decode_protobuf': (data) => decodeProtobuf(data.buffer),
+  'decode_protobuf_batch': (data) => decodeProtobufBatch(data.buffer),
+  'transform_data': (data) => transformData(data.rows),
+  'health_check': () => getHealthCheckResult()
 };
 
 // Protobuf parser state
@@ -33,19 +53,10 @@ let protobufRoot = null;
 let LogEntryProto = null;
 let LogEntryBatchProto = null;
 
-// Log level mapping
-const LOG_LEVEL_MAP = {
-  0: 'DEBUG',
-  1: 'INFO',
-  2: 'WARN',
-  3: 'ERROR',
-  4: 'FATAL'
-};
-
 /**
  * Send response back to main thread
  */
-function sendResponse(requestId, type, data, error = null) {
+function sendResponse(requestId, type, data = null, error = null) {
   parentPort.postMessage({
     requestId,
     type,
@@ -60,30 +71,34 @@ function sendResponse(requestId, type, data, error = null) {
  */
 async function validateBatch(logsDataArray) {
   try {
-    // Do validation and normalization directly (skip LogEntry instance creation)
-    const validEntries = [];
+    const length = logsDataArray.length;
+    // Pre-allocate array with max possible size to avoid reallocation
+    const validEntries = new Array(length);
     const errors = [];
+    let validCount = 0;
 
-    for (const data of logsDataArray) {
+    for (let i = 0; i < length; i++) {
+      const data = logsDataArray[i];
       try {
         const normalized = LogEntry.normalize(data);
-        validEntries.push({
-          id: normalized.id ?? null, // Ensure id is null for new entries
-          app_id: normalized.appId.value,
-          level: normalized.level.value,
+        validEntries[validCount++] = {
+          app_id: normalized.appId,
+          level: normalized.level,
           message: normalized.message,
           source: normalized.source,
           environment: normalized.environment,
-          metadata: normalized.metadata.value,
+          metadata: normalized.metadata,
           metadataString: normalized.metadata.string,
-          trace_id: normalized.traceId.value,
-          user_id: normalized.user_id,
-          timestamp: normalized.timestamp ?? null // Ensure timestamp is null for new entries
-        });
+          trace_id: normalized.traceId,
+          user_id: normalized.userId
+        };
       } catch (error) {
         errors.push({ data, error: error.message });
       }
     }
+
+    // Trim array to actual size if some entries failed validation
+    validEntries.length = validCount;
 
     return { validEntries, errors };
   } catch (error) {
@@ -118,7 +133,7 @@ async function initializeProtobuf() {
   }
 
   try {
-    const protoPath = path.join(__dirname, '../../../proto/log-entry.proto');
+    const protoPath = path.join(__dirname, '../../../proto/logs/log-entry.proto');
     protobufRoot = await protobuf.load(protoPath);
     LogEntryProto = protobufRoot.lookupType('logs.LogEntry');
     LogEntryBatchProto = protobufRoot.lookupType('logs.LogEntryBatch');
@@ -169,10 +184,7 @@ function transformProtoToLogEntry(protoObject) {
  * Map protobuf log level to string
  */
 function mapLogLevel(level) {
-  if (typeof level === 'string') {
-    return level.toUpperCase();
-  }
-  return LOG_LEVEL_MAP[level] || 'INFO';
+  return LogLevel.fromValue(level).value;
 }
 
 /**
@@ -240,52 +252,22 @@ parentPort.on('message', async (message) => {
   const { requestId, type, data } = message;
 
   try {
-    let result;
-
-    switch (type) {
-      case MESSAGE_TYPES.VALIDATE_BATCH:
-        result = await validateBatch(data.logsDataArray);
-        break;
-
-      case MESSAGE_TYPES.PARSE_JSON:
-        result = parseJson(data.jsonString);
-        break;
-
-      case MESSAGE_TYPES.DECODE_PROTOBUF:
-        result = await decodeProtobuf(data.buffer);
-        break;
-
-      case MESSAGE_TYPES.DECODE_PROTOBUF_BATCH:
-        result = await decodeProtobufBatch(data.buffer);
-        break;
-
-      case MESSAGE_TYPES.TRANSFORM_DATA:
-        result = transformData(data.rows);
-        break;
-
-      case MESSAGE_TYPES.HEALTH_CHECK:
-        result = {
-          healthy: true,
-          timestamp: new Date().toISOString(),
-          uptime: process.uptime(),
-          memory: process.memoryUsage(),
-          protobufInitialized: protobufRoot !== null
-        };
-        break;
-
-      case MESSAGE_TYPES.SHUTDOWN:
-        // Graceful shutdown
-        process.exit(0);
-        return;
-
-      default:
-        throw new Error(`Unknown message type: ${type}`);
+    // Handle shutdown separately as it terminates the process
+    if (type === SHUTDOWN_MESSAGE) {
+      process.exit(0);
+      return;
     }
 
+    const handler = MESSAGE_HANDLERS[type];
+    if (!handler) {
+      throw new Error(`Unknown message type: ${type}`);
+    }
+
+    const result = await handler(data);
     sendResponse(requestId, type, result);
 
   } catch (error) {
-    sendResponse(requestId, type, null, error);
+    sendResponse(requestId, type, error);
   }
 });
 

@@ -4,74 +4,39 @@ const TraceId = require('../value-objects/trace-id');
 const AppId = require('../value-objects/app-id');
 
 /**
- * LogEntry Domain Entity - Core log entry representation with validation and performance optimization.
+ * LogEntry Domain Entity - Log validation and normalization.
  *
- * This class represents a complete log entry in the logging platform, encapsulating all
- * log data with built-in validation, normalization, and optimized processing. It serves
- * as the primary domain object for log ingestion, validation, and storage operations.
+ * This class provides static methods for validating and normalizing log entry data.
+ * It uses value objects (AppId, LogLevel, Metadata, TraceId) to ensure data integrity.
  *
  * Key features:
  * - Comprehensive field validation with length and type constraints
- * - Lazy metadata JSON serialization to avoid upfront performance costs
- * - Immutable value object composition (AppId, LogLevel, Metadata, TraceId)
+ * - Value object composition for type safety
  * - Batch processing support for high-throughput scenarios
- * - Backward compatibility through fields object
- * - Memory-efficient instance creation with defensive copying
- * - ID field populated from database queries (not generated in application)
  *
  * @example
  * ```javascript
- * // Create a basic log entry (id will be null)
- * const logEntry = LogEntry.create({
+ * // Normalize a single log entry
+ * const normalized = LogEntry.normalize({
  *   app_id: 'my-app',
  *   message: 'User logged in',
  *   level: 'INFO',
  *   source: 'auth-service'
  * });
  *
- * // Create with full data (id and timestamp always null for new entries)
- * const fullLog = LogEntry.create({
- *   id: 'ignored-id', // This will be ignored - new entries always get id = null
- *   app_id: 'production-app',
- *   message: 'Payment processed',
- *   level: 'WARN',
- *   source: 'payment-service',
- *   environment: 'production',
- *   metadata: { amount: 99.99 },
- *   trace_id: 'req-123',
- *   user_id: 'user-456',
- *   timestamp: Date.now() // This will be ignored - new entries always get timestamp = null
- * });
+ * // normalized.appId is an AppId value object
+ * // normalized.level is a LogLevel value object
+ * console.log(normalized.appId.value);  // 'my-app'
+ * console.log(normalized.level.value);  // 'INFO'
  *
- * // ID and timestamp handling - always null for new entries
- * console.log(log.id);              // null (new entry)
- * console.log(log.timestamp);       // null (new entry)
- * console.log(fullLog.id);          // null (id ignored, new entry)
- * console.log(fullLog.timestamp);   // null (timestamp ignored, new entry)
- *
- * // Access value objects
- * console.log(logEntry.level.value);     // 'INFO'
- * console.log(logEntry.appId.value);     // 'my-app'
- * console.log(logEntry.metadata.string); // '{"amount":99.99,"currency":"USD"}'
- *
- * // Access via toObject() for storage/serialization
- * const obj = logEntry.toObject();
- * console.log(obj.level);    // 'INFO'
- * console.log(obj.metadata); // '{"amount":99.99,"currency":"USD"}'
+ * // Batch processing
+ * const result = await LogEntry.createBatch(rawLogs);
+ * console.log(`${result.validEntries.length} valid`);
  * ```
  */
 class LogEntry {
   /**
-   * Private symbol to control constructor access and prevent external instantiation.
-   * @type {symbol}
-   */
-  static #privateConstructor = Symbol('LogEntry.privateConstructor');
-
-  /**
    * Field validation constraints for log entry properties.
-   *
-   * Defines length limits and optional flags for string fields.
-   *
    * @type {Object<string, {minLength?: number, maxLength?: number, optional?: boolean}>}
    */
   static CONSTRAINTS = {
@@ -83,105 +48,15 @@ class LogEntry {
 
   /**
    * Required fields that must be present and non-empty in every log entry.
-   *
    * @type {string[]}
    */
   static REQUIRED_FIELDS = ['app_id', 'message', 'level', 'source'];
 
   /**
-   * Private constructor - use LogEntry.create() instead.
+   * Create multiple normalized log entry data objects asynchronously with batch processing and validation.
    *
-   * This constructor is intentionally private and will throw an error if called directly.
-   * LogEntry instances should only be created through the LogEntry.create() factory method.
-   *
-   * @param {symbol} secret - Private symbol for internal construction
-   * @param {Object} data - Raw log entry data
-   * @param {Object} [options={}] - Creation options
-   * @throws {Error} Always throws when called without the private symbol
-   * @private
-   */
-  constructor(secret, data = {}, options = {}) {
-    // Private symbol to prevent external instantiation
-    if (secret !== LogEntry.#privateConstructor) {
-      throw new Error(
-        'LogEntry cannot be instantiated directly. Use LogEntry.create() instead'
-      );
-    }
-
-    const normalized = LogEntry.normalize(data);
-
-    // Use value objects created by normalize
-    this.appId = normalized.appId;
-    this.level = normalized.level;
-    this.metadata = normalized.metadata;
-    this.traceId = normalized.traceId;
-
-    // Store primitive values directly
-    this.message = normalized.message;
-    this.source = normalized.source;
-    this.environment = normalized.environment;
-    this.userId = normalized.user_id;
-    this.id = normalized.id;
-    this.timestamp = normalized.timestamp;
-
-  }
-
-  /**
-   * Factory method to create a LogEntry instance.
-   *
-   * This is the primary way to create LogEntry instances. It ensures proper validation,
-   * normalization, and always sets both id and timestamp to null for new entries
-   * (database-generated). Any id or timestamp parameters passed in the data will be ignored.
-   *
-   * @param {Object} data - Raw log entry data
-   * @param {Object} [options={}] - Creation options
-   * @returns {LogEntry} New LogEntry instance
-   *
-   * @example
-   * ```javascript
-   * // Create a basic log entry
-   * const log = LogEntry.create({
-   *   app_id: 'my-app',
-   *   message: 'User action',
-   *   level: 'INFO',
-   *   source: 'web-client'
-   * });
-   *
- * // Create with full data (id and timestamp always null for new entries)
- * const fullLog = LogEntry.create({
- *   id: 'ignored-id', // This will be ignored - new entries always get id = null
- *   app_id: 'production-app',
- *   message: 'Payment processed',
- *   level: 'WARN',
- *   source: 'payment-service',
- *   environment: 'production',
- *   metadata: { amount: 99.99 },
- *   trace_id: 'req-123',
- *   user_id: 'user-456',
- *   timestamp: Date.now() // This will be ignored - new entries always get timestamp = null
- * });
- *
- * // ID and timestamp handling - always null for new entries
- * console.log(log.id);              // null (new entry)
- * console.log(log.timestamp);       // null (new entry)
- * console.log(fullLog.id);          // null (id ignored, new entry)
- * console.log(fullLog.timestamp);   // null (timestamp ignored, new entry)
-   * ```
-   */
-  static create(data = {}, options = {}) {
-    // Force id and timestamp = null for new entries (database will generate)
-    const dataWithNulls = { ...data, id: null, timestamp: null };
-    return new LogEntry(LogEntry.#privateConstructor, dataWithNulls, options);
-  }
-
-
-
-  /**
-   * Create multiple LogEntry instances asynchronously with batch processing and validation.
-   *
-   * Processes arrays of log entries, validating each entry and creating LogEntry instances.
+   * Processes arrays of log entries, validating each entry and creating normalized data objects.
    * Uses sub-batching for memory efficiency with large inputs and includes GC hints.
-   * Forces id and timestamp to null for new entries (database-generated).
    *
    * @param {Array<Object>} rawLogs - Array of raw log entry objects
    * @param {Object} [options={}] - Creation options
@@ -204,54 +79,40 @@ class LogEntry {
    */
   static async createBatch(rawLogs, options = {}) {
     const batchSize = options.batchSize || 10000;
-    const validEntries = [];
+    const length = rawLogs.length;
+    // Pre-allocate array with max possible size to avoid reallocation
+    const validEntries = new Array(length);
     const errors = [];
+    let validCount = 0;
 
     // Process in sub-batches if large
-    for (let i = 0; i < rawLogs.length; i += batchSize) {
-      const batch = rawLogs.slice(i, i + batchSize);
+    for (let i = 0; i < length; i += batchSize) {
+      const end = Math.min(i + batchSize, length);
 
-      for (let j = 0; j < batch.length; j++) {
-        const raw = batch[j];
+      for (let j = i; j < end; j++) {
+        const raw = rawLogs[j];
         try {
-          validEntries.push(LogEntry.create(raw, options));
+          // Use normalize() for consistency with worker validation
+          // Returns plain objects with value objects, not LogEntry instances
+          validEntries[validCount++] = LogEntry.normalize(raw);
         } catch (err) {
           errors.push({ data: raw, error: err.message });
         }
       }
 
       // Allow GC between sub-batches for very large inputs
-      if (rawLogs.length > 100000 && i % 10000 === 0) {
+      if (length > 100000 && i % 10000 === 0) {
         // Yield to event loop
         await new Promise(resolve => setImmediate(resolve));
       }
     }
 
+    // Trim array to actual size if some entries failed validation
+    validEntries.length = validCount;
+
     return { validEntries, errors };
   }
 
-  /**
-   * Convert to plain object for storage and serialization.
-   *
-   * Returns an object with primitive values suitable for database insertion
-   * and JSON serialization.
-   *
-   * @returns {Object} Plain object with primitive values
-   */
-  toObject() {
-    return {
-      id: this.id,
-      app_id: this.appId.value,
-      message: this.message,
-      source: this.source,
-      level: this.level.value,
-      environment: this.environment,
-      metadata: this.metadata.string,
-      trace_id: this.traceId.value,
-      user_id: this.userId,
-      timestamp: this.timestamp
-    };
-  }
 
   /**
    * Validate and normalize log entry data.
@@ -312,7 +173,7 @@ class LogEntry {
       message: data.message,
       source: data.source,
       environment: data.environment,
-      user_id: data.user_id ?? null,
+      userId: data.user_id ?? null,
       id: data.id,
       timestamp: data.timestamp
     };
