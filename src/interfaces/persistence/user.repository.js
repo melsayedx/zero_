@@ -9,14 +9,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    index: true,
     maxlength: 50
   },
   email: {
     type: String,
     required: true,
     unique: true,
-    index: true,
     lowercase: true,
     trim: true,
     maxlength: 254
@@ -35,9 +33,7 @@ const userSchema = new mongoose.Schema({
   timestamps: false // We're managing created_at manually
 });
 
-// Create indexes for faster queries
-userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ user_id: 1 }, { unique: true });
+
 
 /**
  * User Repository Implementation using MongoDB (Mongoose)

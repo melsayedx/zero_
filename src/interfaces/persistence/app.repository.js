@@ -19,7 +19,6 @@ const appSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    index: true,
     maxlength: 32
   },
   app_name: {
@@ -45,8 +44,6 @@ const appSchema = new mongoose.Schema({
 });
 
 // Create indexes for faster queries
-appSchema.index({ app_id: 1 }, { unique: true });
-appSchema.index({ owner_user_id: 1 });
 appSchema.index({ owner_user_id: 1, app_id: 1 }); // Compound index for ownership verification
 
 /**
