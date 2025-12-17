@@ -26,14 +26,14 @@
  *
  * // Check status
  * if (result.isFullSuccess()) {
- *   console.log('All logs processed successfully');
+ *   logger.info('All logs processed successfully');
  * } else if (result.isPartialSuccess()) {
- *   console.log(`${result.accepted} succeeded, ${result.rejected} failed`);
+ *   logger.info(`${result.accepted} succeeded, ${result.rejected} failed`);
  * }
  *
  * // Get summary for monitoring
  * const summary = result.toSummary();
- * console.log(`Processed ${summary.totalProcessed} logs at ${summary.throughput} logs/sec`);
+ * logger.info(`Processed ${summary.totalProcessed} logs at ${summary.throughput} logs/sec`);
  * ```
  */
 class IngestResult {
@@ -70,7 +70,7 @@ class IngestResult {
    * @example
    * ```javascript
    * if (result.hasErrors()) {
-   *   console.log(`${result.rejected} logs failed validation`);
+   *   logger.info(`${result.rejected} logs failed validation`);
    * }
    * ```
    */
@@ -86,7 +86,7 @@ class IngestResult {
    * @example
    * ```javascript
    * if (result.isPartialSuccess()) {
-   *   console.log('Partial success - review rejected logs');
+   *   logger.info('Partial success - review rejected logs');
    * }
    * ```
    */
@@ -102,7 +102,7 @@ class IngestResult {
    * @example
    * ```javascript
    * if (result.isFullSuccess()) {
-   *   console.log('All logs processed successfully');
+   *   logger.info('All logs processed successfully');
    * }
    * ```
    */
@@ -118,7 +118,7 @@ class IngestResult {
    * @example
    * ```javascript
    * if (result.isFullFailure()) {
-   *   console.log('All logs failed - check validation rules');
+   *   logger.info('All logs failed - check validation rules');
    * }
    * ```
    */
@@ -192,7 +192,7 @@ class IngestResult {
    * ```javascript
    * const report = result.toDetailedReport();
    * // Includes summary + first 10 errors + error count
-   * console.log(`Found ${report.errorCount} validation errors`);
+   * logger.info(`Found ${report.errorCount} validation errors`);
    * ```
    */
   toDetailedReport() {

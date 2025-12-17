@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('@dotenvx/dotenvx').config();
 const fastify = require('fastify');
 const DIContainer = require('./infrastructure/config/di-container');
 const setupRoutes = require('./interfaces/http/routes');
@@ -8,6 +8,10 @@ const logsOpenApiConfig = require('./infrastructure/openapi/logs-openapi');
 const cluster = require('cluster');
 const fs = require('fs');
 const path = require('path');
+const { LoggerFactory } = require('./infrastructure/logging');
+
+// Initialize bootstrap logger
+const logger = LoggerFactory.named('Bootstrap');
 
 /**
  * Create application instance
@@ -42,10 +46,10 @@ async function createApp(options = {}) {
           cert: fs.readFileSync(certPath)
         };
       } else {
-        console.warn(`[WARN] HTTP/2 enabled but certificates not found at ${certPath} or ${keyPath}. Falling back to HTTP/1.1.`);
+        logger.warn('HTTP/2 enabled but certificates not found, falling back to HTTP/1.1', { certPath, keyPath });
       }
     } catch (err) {
-      console.warn(`[WARN] Failed to load SSL certificates: ${err.message}. Falling back to HTTP/1.1.`);
+      logger.warn('Failed to load SSL certificates, falling back to HTTP/1.1', { error: err.message });
     }
   }
 
@@ -83,7 +87,12 @@ async function createApp(options = {}) {
   // app.addHook('onRequest', (request, reply, done) => {
   //   const format = request.contentFormat ? ` [${request.contentFormat}]` : '';
   //   const workerInfo = clusterMode ? ` [Worker ${workerId}]` : '';
-  //   console.log(`${new Date().toISOString()}${workerInfo} - ${request.method} ${request.url}${format}`);
+  //   logger.debug('Incoming request', {
+  //      method: request.method,
+  //      url: request.url,
+  //      format: request.contentFormat,
+  //      workerId: clusterMode ? workerId : undefined
+  //   });
   //   done();
   // });
 
@@ -101,7 +110,7 @@ async function createApp(options = {}) {
 
   // Error handler
   app.setErrorHandler((error, request, reply) => {
-    console.error('Unhandled error:', error);
+    logger.error('Unhandled error', { error, url: request.url, method: request.method });
     return reply.code(500).send({
       success: false,
       message: 'Internal server error',
@@ -125,51 +134,33 @@ async function createApp(options = {}) {
       httpServer = app.server;
 
       if (clusterMode) {
-        console.log(`[Worker ${workerId}] HTTP server listening on port ${HTTP_PORT}`);
-        console.log(`[Worker ${workerId}] gRPC server listening on port ${GRPC_PORT}`);
+        logger.info('HTTP server listening', { workerId, port: HTTP_PORT });
+        logger.info('gRPC server listening', { workerId, port: GRPC_PORT });
       } else {
-        console.log(`
+        // Pretty print for development/standalone
+        if (process.env.LOG_MODE !== 'json') {
+          logger.info(`
 ╔═══════════════════════════════════════════════════════════╗
 ║   Log Ingestion Platform - Started Successfully           ║
 ║                  (Fastify Edition)                        ║
 ╚═══════════════════════════════════════════════════════════╝
-
+ 
 HTTP Server running on: ${enableHttp2 ? 'https' : 'http'}://localhost:${HTTP_PORT}
 gRPC Server running on: 0.0.0.0:${GRPC_PORT}
 Environment: ${process.env.NODE_ENV || 'development'}
-
-HTTP Endpoints:
-  GET  /health             - Health check
-  GET  /api/stats          - Performance stats (includes batch buffer metrics)
-  POST /api/logs           - Ingest logs (JSON or Protocol Buffer)
-  GET  /api/logs/:app_id   - Retrieve logs for a specific app (default: 1000 rows)
-
-gRPC Methods:
-  IngestLogs               - Ingest log entries
-  GetLogsByAppId           - Retrieve logs by app_id
-  HealthCheck              - Health check
-
-Supported Content Types:
-  - application/json              (JSON format - backward compatible)
-  - application/x-protobuf        (Protocol Buffer - single entry)
-  - application/x-protobuf-batch  (Protocol Buffer - batch)
-
-Performance Features:
-  ✓ Batch Validation (50-140% faster)
-  ✓ Worker Threads (Adaptive: validation, protobuf, JSON)
-  ✓ ClickHouse Buffer (99% fewer operations)
-  ✓ Protocol Buffers (40-60% smaller payloads)
-  ✓ HTTP Compression (enabled)
-  ✓ Fastify Framework (3x faster than Express)
-  ${enableHttp2 ? '✓ HTTP/2 Support (Multiplexing, HPACK)' : '✓ HTTP/1.1 (HTTP/2 available)'}
-
-ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}
-Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}
-MongoDB: ${process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform'}
-  `);
+`);
+        } else {
+          logger.info('Log Ingestion Platform started', {
+            httpPort: HTTP_PORT,
+            grpcPort: GRPC_PORT,
+            env: process.env.NODE_ENV,
+            mode: 'standalone',
+            http2: enableHttp2
+          });
+        }
       }
     } catch (error) {
-      console.error('Failed to start HTTP server:', error.message);
+      logger.error('Failed to start HTTP server', { error: error.message });
       throw error;
     }
   }
@@ -194,7 +185,7 @@ MongoDB: ${process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform'}
     async start() {
       // Servers are already started
       if (clusterMode) {
-        console.log(`[Worker ${workerId}] Application started successfully`);
+        logger.info('Application started successfully', { workerId });
       }
     },
 
@@ -202,29 +193,29 @@ MongoDB: ${process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform'}
      * Gracefully shutdown the application
      */
     async shutdown() {
-      console.log('Starting graceful shutdown...');
+      logger.info('Starting graceful shutdown...');
 
       return new Promise(async (resolve) => {
         try {
           // Close HTTP server (Fastify app)
           if (app) {
             await app.close();
-            console.log('HTTP server closed');
+            logger.info('HTTP server closed');
           }
 
           // Shutdown gRPC server
           if (grpcServer) {
             await shutdownGrpcServer(grpcServer);
-            console.log('gRPC server closed');
+            logger.info('gRPC server closed');
           }
 
           // Cleanup resources
           await container.cleanup();
-          console.log('Resources cleaned up');
+          logger.info('Resources cleaned up');
 
           resolve();
         } catch (error) {
-          console.error('Error during shutdown:', error);
+          logger.error('Error during shutdown', { error });
           resolve();
         }
       });
@@ -260,14 +251,14 @@ MongoDB: ${process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform'}
      */
     handleMasterMessage(message) {
       // Custom message handling
-      console.log(`[Worker ${workerId}] Received message from master:`, message.type);
+      logger.debug('Received message from master', { workerId, type: message.type });
     },
 
     /**
      * Update configuration (for hot reload)
      */
     updateConfig(config) {
-      console.log(`[Worker ${workerId}] Config update:`, config);
+      logger.info('Config update', { workerId, config });
       // Implement config hot-reload if needed
     }
   };
@@ -282,9 +273,8 @@ if (require.main === module) {
   const isClusterEnabled = process.env.ENABLE_CLUSTERING === 'true';
 
   if (isClusterEnabled && cluster.isPrimary) {
-    console.log(`[Master] Running on ${numCPUs} CPUs`);
-    console.log(`[Master] Primary process ${process.pid} is running`);
-    console.log(`[Master] Forking ${numCPUs} workers for maximum throughput...`);
+    logger.info('Master process running', { pid: process.pid, cpus: numCPUs });
+    logger.info('Forking workers for maximum throughput...');
 
     // Fork workers
     for (let i = 0; i < numCPUs; i++) {
@@ -293,7 +283,7 @@ if (require.main === module) {
 
     // Handle worker exit
     cluster.on('exit', (worker, code, signal) => {
-      console.log(`[Master] Worker ${worker.process.pid} died. Restarting...`);
+      logger.warn('Worker died', { workerId: worker.process.pid, code, signal });
       cluster.fork();
     });
   } else {
@@ -309,7 +299,7 @@ if (require.main === module) {
       // Setup signal handlers
       const shutdown = async (signal) => {
         const role = cluster.isWorker ? `Worker ${cluster.worker.id}` : 'App';
-        console.log(`\n[${role}] ${signal} received. Starting graceful shutdown...`);
+        logger.info('Signal received, starting graceful shutdown', { role, signal });
 
         await appInstance.shutdown();
 
@@ -325,12 +315,12 @@ if (require.main === module) {
 
       // Handle uncaught errors
       process.on('uncaughtException', (error) => {
-        console.error('Uncaught Exception:', error);
+        logger.fatal('Uncaught Exception', { error });
         process.exit(1);
       });
 
       process.on('unhandledRejection', (reason, promise) => {
-        console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+        logger.fatal('Unhandled Rejection', { reason });
         process.exit(1);
       });
     })();

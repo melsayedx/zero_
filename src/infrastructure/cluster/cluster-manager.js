@@ -24,6 +24,12 @@ class ClusterManager extends EventEmitter {
   constructor(options = {}) {
     super();
 
+    // Logger must be injected from DI container
+    if (!options.logger) {
+      throw new Error('Logger is required - must be injected from DI container');
+    }
+    this.logger = options.logger;
+
     // Configuration
     this.numWorkers = options.numWorkers || os.cpus().length;
     this.minWorkers = options.minWorkers || Math.max(1, Math.floor(this.numWorkers / 2));
@@ -47,7 +53,7 @@ class ClusterManager extends EventEmitter {
     this.isShuttingDown = false;
     this.isRestarting = false;
 
-    console.log('[ClusterManager] Initializing cluster with', this.numWorkers, 'workers');
+    this.logger.info('Initializing cluster', { numWorkers: this.numWorkers });
   }
 
   /**
@@ -58,8 +64,8 @@ class ClusterManager extends EventEmitter {
       throw new Error('ClusterManager.start() should only be called from master process');
     }
 
-    console.log(`[ClusterManager] Master process ${process.pid} is running`);
-    console.log(`[ClusterManager] Starting ${this.numWorkers} worker processes...`);
+    this.logger.info('Master process running', { pid: process.pid });
+    this.logger.info('Starting worker processes', { count: this.numWorkers });
 
     // Fork initial workers
     for (let i = 0; i < this.numWorkers; i++) {
@@ -77,8 +83,8 @@ class ClusterManager extends EventEmitter {
 
     // Log initial status
     setTimeout(() => {
-      console.log('[ClusterManager] Cluster started successfully');
-      console.log('[ClusterManager] Workers:', Array.from(this.workers.keys()));
+      this.logger.info('Cluster started successfully');
+      this.logger.debug('Active workers', { workers: Array.from(this.workers.keys()) });
       this.emit('ready');
     }, 1000);
   }
@@ -109,7 +115,7 @@ class ClusterManager extends EventEmitter {
     this.workers.set(workerId, workerState);
     this.stats.workersSpawned++;
 
-    console.log(`[ClusterManager] Worker ${workerId} (PID: ${worker.process.pid}) forked`);
+    this.logger.info('Worker forked', { workerId, pid: worker.process.pid });
 
     // Setup worker message handlers
     worker.on('message', (msg) => this.handleWorkerMessage(workerId, msg));
@@ -125,18 +131,18 @@ class ClusterManager extends EventEmitter {
   setupClusterListeners() {
     // Worker online
     cluster.on('online', (worker) => {
-      console.log(`[ClusterManager] Worker ${worker.id} (PID: ${worker.process.pid}) is online`);
+      this.logger.info('Worker online', { workerId: worker.id, pid: worker.process.pid });
     });
 
     // Worker listening
     cluster.on('listening', (worker, address) => {
-      console.log(`[ClusterManager] Worker ${worker.id} listening on ${address.address}:${address.port}`);
+      this.logger.info('Worker listening', { workerId: worker.id, address: address.address, port: address.port });
       this.emit('workerListening', { workerId: worker.id, address });
     });
 
     // Worker disconnected
     cluster.on('disconnect', (worker) => {
-      console.log(`[ClusterManager] Worker ${worker.id} disconnected`);
+      this.logger.info('Worker disconnected', { workerId: worker.id });
     });
 
     // Worker exit
@@ -157,8 +163,7 @@ class ClusterManager extends EventEmitter {
     const wasHealthy = workerState.healthy;
     const uptime = Date.now() - workerState.startTime;
 
-    console.log(`[ClusterManager] Worker ${workerId} (PID: ${worker.process.pid}) exited`);
-    console.log(`[ClusterManager]   Code: ${code}, Signal: ${signal}, Uptime: ${Math.round(uptime / 1000)}s`);
+    this.logger.info('Worker exited', { workerId, pid: worker.process.pid, code, signal, uptimeSeconds: Math.round(uptime / 1000) });
 
     // Remove from workers map
     this.workers.delete(workerId);
@@ -166,7 +171,7 @@ class ClusterManager extends EventEmitter {
     // Update stats
     if (code !== 0 && !signal) {
       this.stats.totalCrashes++;
-      console.error(`[ClusterManager] Worker ${workerId} crashed unexpectedly!`);
+      this.logger.error('Worker crashed unexpectedly', { workerId });
     }
 
     this.emit('workerExit', { workerId, code, signal, uptime, wasHealthy });
@@ -177,13 +182,13 @@ class ClusterManager extends EventEmitter {
 
       // Immediate restart if we're below minimum
       if (this.workers.size < this.minWorkers) {
-        console.log(`[ClusterManager] Below minimum workers (${this.workers.size}/${this.minWorkers}), respawning immediately`);
+        this.logger.info('Below minimum workers, respawning immediately', { current: this.workers.size, min: this.minWorkers });
         this.forkWorker();
       } else {
         // Delayed restart for normal exits
         setTimeout(() => {
           if (!this.isShuttingDown && this.workers.size < this.numWorkers) {
-            console.log(`[ClusterManager] Respawning worker to maintain ${this.numWorkers} workers`);
+            this.logger.info('Respawning worker to maintain count', { target: this.numWorkers });
             this.forkWorker();
           }
         }, this.workerRestartDelay);
@@ -207,7 +212,7 @@ class ClusterManager extends EventEmitter {
 
         // Check memory limit
         if (message.data.memory > this.workerMemoryLimit) {
-          console.warn(`[ClusterManager] Worker ${workerId} exceeded memory limit: ${Math.round(message.data.memory / 1024 / 1024)}MB`);
+          this.logger.warn('Worker exceeded memory limit', { workerId, memoryMB: Math.round(message.data.memory / 1024 / 1024) });
           this.restartWorker(workerId, 'memory-limit');
         }
         break;
@@ -218,12 +223,12 @@ class ClusterManager extends EventEmitter {
         break;
 
       case 'error':
-        console.error(`[ClusterManager] Worker ${workerId} error:`, message.data);
+        this.logger.error('Worker error', { workerId, error: message.data });
         this.emit('workerError', { workerId, error: message.data });
         break;
 
       case 'ready':
-        console.log(`[ClusterManager] Worker ${workerId} is ready to handle requests`);
+        this.logger.info('Worker ready to handle requests', { workerId });
         this.emit('workerReady', { workerId });
         break;
 
@@ -239,11 +244,11 @@ class ClusterManager extends EventEmitter {
   async restartWorker(workerId, reason = 'manual') {
     const workerState = this.workers.get(workerId);
     if (!workerState) {
-      console.warn(`[ClusterManager] Cannot restart worker ${workerId}: not found`);
+      this.logger.warn('Cannot restart worker: not found', { workerId });
       return false;
     }
 
-    console.log(`[ClusterManager] Restarting worker ${workerId} (reason: ${reason})`);
+    this.logger.info('Restarting worker', { workerId, reason });
 
     // Fork new worker first (zero-downtime)
     const newWorker = this.forkWorker();
@@ -254,7 +259,7 @@ class ClusterManager extends EventEmitter {
     // Gracefully shutdown old worker
     await this.shutdownWorker(workerId);
 
-    console.log(`[ClusterManager] Worker ${workerId} replaced with ${newWorker.id}`);
+    this.logger.info('Worker replaced', { oldWorkerId: workerId, newWorkerId: newWorker.id });
     return true;
   }
 
@@ -291,7 +296,7 @@ class ClusterManager extends EventEmitter {
 
       // Setup timeout
       const timeout = setTimeout(() => {
-        console.warn(`[ClusterManager] Worker ${workerId} didn't exit gracefully, forcing kill`);
+        this.logger.warn('Worker did not exit gracefully, forcing kill', { workerId });
         worker.kill('SIGKILL');
         resolve();
       }, this.gracefulShutdownTimeout);
@@ -315,12 +320,12 @@ class ClusterManager extends EventEmitter {
    */
   async rollingRestart() {
     if (this.isRestarting) {
-      console.warn('[ClusterManager] Rolling restart already in progress');
+      this.logger.warn('Rolling restart already in progress');
       return;
     }
 
     this.isRestarting = true;
-    console.log('[ClusterManager] Starting rolling restart...');
+    this.logger.info('Starting rolling restart...');
 
     const workerIds = Array.from(this.workers.keys());
 
@@ -332,7 +337,7 @@ class ClusterManager extends EventEmitter {
     }
 
     this.isRestarting = false;
-    console.log('[ClusterManager] Rolling restart complete');
+    this.logger.info('Rolling restart complete');
     this.emit('rollingRestartComplete');
   }
 
@@ -341,19 +346,19 @@ class ClusterManager extends EventEmitter {
    */
   async scale(targetWorkers) {
     if (targetWorkers < this.minWorkers) {
-      console.warn(`[ClusterManager] Cannot scale below minimum workers (${this.minWorkers})`);
+      this.logger.warn('Cannot scale below minimum workers', { min: this.minWorkers });
       return false;
     }
 
     if (targetWorkers > this.maxWorkers) {
-      console.warn(`[ClusterManager] Cannot scale above maximum workers (${this.maxWorkers})`);
+      this.logger.warn('Cannot scale above maximum workers', { max: this.maxWorkers });
       return false;
     }
 
     const currentWorkers = this.workers.size;
     const diff = targetWorkers - currentWorkers;
 
-    console.log(`[ClusterManager] Scaling from ${currentWorkers} to ${targetWorkers} workers (${diff > 0 ? '+' : ''}${diff})`);
+    this.logger.info('Scaling cluster', { from: currentWorkers, to: targetWorkers, diff });
 
     if (diff > 0) {
       // Scale up
@@ -373,7 +378,7 @@ class ClusterManager extends EventEmitter {
     }
 
     this.numWorkers = targetWorkers;
-    console.log(`[ClusterManager] Scaling complete: ${this.workers.size} workers`);
+    this.logger.info('Scaling complete', { workers: this.workers.size });
     this.emit('scaled', { targetWorkers, currentWorkers: this.workers.size });
 
     return true;
@@ -399,7 +404,7 @@ class ClusterManager extends EventEmitter {
       const timeSinceLastCheck = now - workerState.lastHealthCheck;
 
       if (timeSinceLastCheck > this.healthCheckInterval * 2) {
-        console.warn(`[ClusterManager] Worker ${workerId} hasn't responded to health checks for ${Math.round(timeSinceLastCheck / 1000)}s`);
+        this.logger.warn('Worker unresponsive to health checks', { workerId, secondsSinceLastCheck: Math.round(timeSinceLastCheck / 1000) });
         workerState.healthy = false;
 
         // Restart unresponsive worker
@@ -417,19 +422,19 @@ class ClusterManager extends EventEmitter {
   setupSignalHandlers() {
     // Graceful shutdown on SIGTERM
     process.on('SIGTERM', async () => {
-      console.log('[ClusterManager] Received SIGTERM, starting graceful shutdown...');
+      this.logger.info('Received SIGTERM, starting graceful shutdown...');
       await this.shutdown();
     });
 
     // Graceful shutdown on SIGINT (Ctrl+C)
     process.on('SIGINT', async () => {
-      console.log('[ClusterManager] Received SIGINT, starting graceful shutdown...');
+      this.logger.info('Received SIGINT, starting graceful shutdown...');
       await this.shutdown();
     });
 
     // Rolling restart on SIGUSR2
     process.on('SIGUSR2', async () => {
-      console.log('[ClusterManager] Received SIGUSR2, starting rolling restart...');
+      this.logger.info('Received SIGUSR2, starting rolling restart...');
       await this.rollingRestart();
     });
   }
@@ -485,12 +490,12 @@ class ClusterManager extends EventEmitter {
    */
   async shutdown() {
     if (this.isShuttingDown) {
-      console.warn('[ClusterManager] Shutdown already in progress');
+      this.logger.warn('Shutdown already in progress');
       return;
     }
 
     this.isShuttingDown = true;
-    console.log('[ClusterManager] Shutting down cluster...');
+    this.logger.info('Shutting down cluster...');
 
     // Notify all workers
     this.broadcast({ type: 'shutdown' });
@@ -502,7 +507,7 @@ class ClusterManager extends EventEmitter {
 
     await Promise.all(shutdownPromises);
 
-    console.log('[ClusterManager] All workers shut down');
+    this.logger.info('All workers shut down');
     this.emit('shutdown');
 
     // Exit master process

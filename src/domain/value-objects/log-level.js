@@ -36,7 +36,7 @@
  * try {
  *   new LogLevel('debug');
  * } catch (error) {
- *   console.log(error.message); // "LogLevel cannot be instantiated directly..."
+ *   logger.info(error.message); // "LogLevel cannot be instantiated directly..."
  * }
  * ```
  */

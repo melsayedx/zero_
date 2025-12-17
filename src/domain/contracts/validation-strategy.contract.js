@@ -15,7 +15,7 @@
  *
  * const strategy = new SyncValidationStrategy();
  * const result = await strategy.validateBatch(rawLogs);
- * console.log(`${result.validEntries.length} valid, ${result.errors.length} errors`);
+ * logger.info(`${result.validEntries.length} valid, ${result.errors.length} errors`);
  * ```
  */
 class ValidationStrategyContract {

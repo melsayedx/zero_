@@ -1,5 +1,7 @@
 const createAuthMiddleware = require('../middleware/auth.middleware');
 const { createIdempotencyMiddleware, createIdempotencyHook } = require('../middleware/idempotency.middleware');
+const LoggerFactory = require('../../infrastructure/logging/logger-factory');
+const logger = LoggerFactory.named('Routes');
 
 // Shared schema for a single log entry
 const logEntrySchema = {
@@ -392,7 +394,7 @@ async function setupRoutes(fastify, controllers) {
       }
     }, async (request, reply) => await controllers.getAppController.handle(request, reply));
   } else {
-    console.warn('[Routes] MongoDB-dependent controllers not available, skipping organization/team/app routes');
+    logger.warn('MongoDB-dependent controllers not available, skipping organization/team/app routes');
   }
 }
 

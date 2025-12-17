@@ -37,7 +37,7 @@ print_header "SSL Certificate Setup for HTTP/2 & HTTP/3"
 
 # Check if OpenSSL is installed
 if ! command -v openssl &> /dev/null; then
-    echo -e "${RED}❌ OpenSSL is not installed!${NC}"
+    echo -e "${RED} OpenSSL is not installed!${NC}"
     echo ""
     echo "Install OpenSSL:"
     echo "  macOS:   brew install openssl"
@@ -46,7 +46,7 @@ if ! command -v openssl &> /dev/null; then
     exit 1
 fi
 
-echo -e "${GREEN}✅ OpenSSL is installed ($(openssl version))${NC}"
+echo -e "${GREEN}OpenSSL is installed ($(openssl version))${NC}"
 echo ""
 
 # Create certs directory
@@ -54,7 +54,7 @@ mkdir -p "${CERT_DIR}"
 
 # Check if certificates already exist
 if [ -f "${CERT_FILE}" ] && [ -f "${KEY_FILE}" ]; then
-    echo -e "${YELLOW}⚠️  Certificates already exist!${NC}"
+    echo -e "${YELLOW}Certificates already exist!${NC}"
     echo ""
     echo "Existing certificates:"
     echo "  Certificate: ${CERT_FILE}"
@@ -78,11 +78,11 @@ if [ -f "${CERT_FILE}" ] && [ -f "${KEY_FILE}" ]; then
 fi
 
 # Generate private key
-echo -e "${BLUE}📝 Generating private key...${NC}"
+echo -e "${BLUE}Generating private key...${NC}"
 openssl genrsa -out "${KEY_FILE}" 2048
 
 # Generate certificate signing request and self-signed certificate
-echo -e "${BLUE}📝 Generating self-signed certificate...${NC}"
+echo -e "${BLUE}Generating self-signed certificate...${NC}"
 openssl req -new -x509 \
     -key "${KEY_FILE}" \
     -out "${CERT_FILE}" \
@@ -110,11 +110,11 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "Files created:"
-echo "  📜 Certificate: ${CERT_FILE}"
-echo "  🔑 Private Key: ${KEY_FILE}"
+echo "  Certificate: ${CERT_FILE}"
+echo "  Private Key: ${KEY_FILE}"
 echo ""
 
-echo -e "${YELLOW}⚠️  Important Notes:${NC}"
+echo -e "${YELLOW}Important Notes:${NC}"
 echo ""
 echo "1. These are SELF-SIGNED certificates for development/testing only"
 echo "2. Browsers will show security warnings - this is expected"
@@ -138,12 +138,12 @@ echo "  echo 'SSL_CERT_PATH=${CERT_FILE}' >> .env"
 echo "  echo 'SSL_KEY_PATH=${KEY_FILE}' >> .env"
 echo ""
 
-echo -e "${GREEN}✅ Setup complete! You can now start HTTP/2 and HTTP/3 servers.${NC}"
+echo -e "${GREEN}Setup complete! You can now start HTTP/2 and HTTP/3 servers.${NC}"
 echo ""
 
 # Add to .gitignore if not already there
 if ! grep -q "^certs/" .gitignore 2>/dev/null; then
     echo "certs/" >> .gitignore
-    echo -e "${GREEN}✅ Added certs/ to .gitignore${NC}"
+    echo -e "${GREEN}Added certs/ to .gitignore${NC}"
 fi
 

@@ -25,8 +25,8 @@ const IngestLogContract = require('../../../domain/contracts/ingest-log.contract
  * ];
  *
  * const result = await useCase.execute(logs);
- * console.log(`${result.accepted} logs accepted, ${result.rejected} rejected`);
- * console.log(`Processed at ${result.throughput} logs/second`);
+ * logger.info(`${result.accepted} logs accepted, ${result.rejected} rejected`);
+ * logger.info(`Processed at ${result.throughput} logs/second`);
  * ```
  */
 class IngestLogUseCase extends IngestLogContract {
@@ -83,11 +83,11 @@ class IngestLogUseCase extends IngestLogContract {
    *
    * // Check results
    * if (result.accepted > 0) {
-   *   console.log(`Successfully ingested ${result.accepted} logs`);
+   *   logger.info(`Successfully ingested ${result.accepted} logs`);
    * }
    *
    * if (result.rejected > 0) {
-   *   console.log(`${result.rejected} logs were rejected due to validation errors`);
+   *   logger.info(`${result.rejected} logs were rejected due to validation errors`);
    * }
    * ```
    */

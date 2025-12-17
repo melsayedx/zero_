@@ -1,5 +1,8 @@
 const grpc = require('@grpc/grpc-js');
 const { LogServiceService } = require('../../infrastructure/grpc/generated/proto/logs/logs_grpc_pb');
+const { LoggerFactory } = require('../../infrastructure/logging');
+
+const logger = LoggerFactory.named('gRPC Server');
 
 /**
  * Setup and start gRPC server
@@ -15,9 +18,9 @@ function setupGrpcServer(handlers, port = 50051) {
 
   // Add service with handlers
   server.addService(LogServiceService, {
-    IngestLogs: (call, callback) => handlers.ingestLogsHandler.handle(call, callback),
-    GetLogsByAppId: (call, callback) => handlers.getLogsByAppIdHandler.handle(call, callback),
-    HealthCheck: (call, callback) => handlers.healthCheckHandler.handle(call, callback)
+    ingestLogs: (call, callback) => handlers.ingestLogsHandler.handle(call, callback),
+    getLogsByAppId: (call, callback) => handlers.getLogsByAppIdHandler.handle(call, callback),
+    healthCheck: (call, callback) => handlers.healthCheckHandler.handle(call, callback)
   });
 
   // Bind and start server
@@ -26,10 +29,10 @@ function setupGrpcServer(handlers, port = 50051) {
     grpc.ServerCredentials.createInsecure(),
     (error, port) => {
       if (error) {
-        console.error('Failed to start gRPC server:', error);
+        logger.error('Failed to start gRPC server', { error });
         throw error;
       }
-      console.log(`gRPC server running on: 0.0.0.0:${port}`);
+      logger.info('gRPC server running', { port });
     }
   );
 
@@ -45,10 +48,10 @@ function shutdownGrpcServer(server) {
   return new Promise((resolve, reject) => {
     server.tryShutdown((error) => {
       if (error) {
-        console.error('Error shutting down gRPC server:', error);
+        logger.error('Error shutting down gRPC server', { error });
         reject(error);
       } else {
-        console.log('gRPC server shut down successfully');
+        logger.info('gRPC server shut down successfully');
         resolve();
       }
     });

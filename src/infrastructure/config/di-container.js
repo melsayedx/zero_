@@ -24,8 +24,9 @@ const RequestCoalescer = require('../request-coalescing/request-coalescer');
 const BatchBuffer = require('../buffers/batch-buffer');
 const RedisRetryStrategy = require('../retry-strategies/redis-retry-strategy');
 const RedisQueryCache = require('../cache/redis-query.cache');
-const { getRedisClient, closeRedisConnection } = require('../database/redis');
+const { getRedisClient, createWorkerRedisClient, closeRedisConnection } = require('../database/redis');
 const RedisIdempotencyStore = require('../idempotency/redis-idempotency.store');
+const { LoggerFactory } = require('../logging');
 
 /**
  * @typedef {Object} DIContainerInstances
@@ -76,12 +77,15 @@ const RedisIdempotencyStore = require('../idempotency/redis-idempotency.store');
 class DIContainer {
   constructor() {
     this.instances = {};
+    // Initialize logger early - it's used throughout initialization
+    // Logging is controlled via LOG_MODE env var (disabled/null/silent = off, structured = on)
+    this.logger = LoggerFactory.getInstance();
   }
 
   async initialize() {
-    console.log('[DIContainer] Initializing dependency container...');
+    this.logger.info('Initializing dependency container...');
 
-    // Phase 1: Infrastructure (databases, pools)
+    // Phase 1: Infrastructure (databases, pools, logger)
     await this._initializeInfrastructure();
 
     // Phase 2: Persistence (Data access - interfaces layer)
@@ -96,22 +100,25 @@ class DIContainer {
     // Phase 5: Interface Adapters (controllers, handlers)
     await this._initializeAdapters();
 
-    console.log('[DIContainer] All dependencies initialized successfully');
+    this.logger.info('All dependencies initialized successfully');
   }
 
   async _initializeInfrastructure() {
-    console.log('[DIContainer] Phase 1: Initializing infrastructure...');
+    this.logger.info('Phase 1: Initializing infrastructure...');
+
+    // Store logger in instances for injection into other components
+    this.instances.logger = this.logger;
 
     this.instances.clickhouseClient = createClickHouseClient();
 
     // Initialize Redis client for high-throughput log ingestion
     this.instances.redisClient = getRedisClient();
 
-    console.log('[DIContainer] Infrastructure initialized');
+    this.logger.info('Infrastructure initialized');
   }
 
   async _initializeRepositories() {
-    console.log('[DIContainer] Phase 2: Initializing repositories...');
+    this.logger.info('Phase 2: Initializing repositories...');
 
     // Create retry strategy for the repository
     this.instances.clickhouseRetryStrategy = new RedisRetryStrategy(
@@ -134,7 +141,8 @@ class DIContainer {
       this.instances.clickhouseClient,
       {
         tableName: process.env.CLICKHOUSE_TABLE || 'logs',
-        queryCache: this.instances.clickhouseQueryCache
+        queryCache: this.instances.clickhouseQueryCache,
+        logger: this.instances.logger
       }
     );
 
@@ -142,8 +150,9 @@ class DIContainer {
     // for crash-proof Redis Stream processing with XACK after ClickHouse insert
 
     this.instances.redisLogRepository = new RedisLogRepository(this.instances.redisClient, {
-      queueKey: process.env.REDIS_LOG_QUEUE_KEY,
-      maxBatchSize: parseInt(process.env.REDIS_BATCH_SIZE || '1000', 10)
+      queueKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
+      maxBatchSize: parseInt(process.env.REDIS_BATCH_SIZE || '1000', 10),
+      logger: this.instances.logger
     });
 
     // Default log repository now uses Redis for high-throughput ingestion
@@ -159,13 +168,14 @@ class DIContainer {
       }
     );
 
-    console.log('[DIContainer] Repositories initialized');
+    this.logger.info('Repositories initialized');
   }
 
   async _initializeWorkers() {
-    console.log('[DIContainer] Phase 3: Initializing workers...');
+    this.logger.info('Phase 3: Initializing workers...');
 
     this.instances.validationService = new WorkerValidationStrategy({
+      logger: this.instances.logger,
       smallBatchThreshold: parseInt(process.env.VALIDATION_SMALL_BATCH_THRESHOLD) || 50,
       mediumBatchThreshold: parseInt(process.env.VALIDATION_MEDIUM_BATCH_THRESHOLD) || 500,
       largeBatchThreshold: parseInt(process.env.VALIDATION_LARGE_BATCH_THRESHOLD) || 2000,
@@ -182,21 +192,27 @@ class DIContainer {
     // Each worker consumes from Redis Stream and saves to ClickHouse (crash-proof)
     const workerCount = parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 3; // 3 workers by default
     this.instances.logProcessorWorkers = [];
+    this.instances.workerRedisClients = []; // Track clients for cleanup
 
     for (let i = 0; i < workerCount; i++) {
+      // Create dedicated Redis client for this worker to prevent blocking the shared client
+      const consumerName = `worker-${process.pid}-${i}`;
+      const workerClient = createWorkerRedisClient(consumerName);
+      this.instances.workerRedisClients.push(workerClient);
+
       const worker = new LogProcessorWorker(
-        this.instances.redisClient,
+        workerClient,
         this.instances.clickhouseRepository,
         this.instances.clickhouseRetryStrategy,
         {
           streamKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
           groupName: process.env.REDIS_CONSUMER_GROUP || 'log-processors',
-          consumerName: `worker-${process.pid}-${i}`,
+          consumerName: consumerName,
           batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 2000,
           maxBatchSize: parseInt(process.env.WORKER_BUFFER_BATCH_SIZE) || 100000,
           maxWaitTime: parseInt(process.env.WORKER_BUFFER_WAIT_TIME) || 1000,
           pollInterval: parseInt(process.env.WORKER_POLL_INTERVAL) || 5,
-          enableLogging: process.env.ENABLE_WORKER_LOGGING !== 'false'
+          logger: this.logger.child({ worker: consumerName })
         }
       );
 
@@ -208,11 +224,11 @@ class DIContainer {
     // Keep backward compatibility
     this.instances.logProcessorWorker = this.instances.logProcessorWorkers[0];
 
-    console.log('[DIContainer] Workers initialized');
+    this.logger.info('Workers initialized with dedicated Redis connections');
   }
 
   async _initializeCoreServices() {
-    console.log('[DIContainer] Phase 4: Initializing application services...');
+    this.logger.info('Phase 4: Initializing application services...');
 
     // Use Cases
     // WorkerValidationStrategy auto-selects strategy based on batch size:
@@ -235,9 +251,10 @@ class DIContainer {
     this.instances.requestCoalescer = new RequestCoalescer(
       () => { /* placeholder - bound after service creation */ },
       {
-        maxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 10,
-        maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 100,
-        enabled: process.env.USE_REQUEST_COALESCING !== 'false'
+        maxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 100,
+        maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 10000,
+        enabled: process.env.USE_REQUEST_COALESCING !== 'false',
+        logger: this.instances.logger
       }
     );
 
@@ -246,8 +263,9 @@ class DIContainer {
       this.instances.ingestLogUseCase,
       this.instances.requestCoalescer,
       {
+        logger: this.instances.logger,
         useCoalescing: process.env.USE_REQUEST_COALESCING !== 'false',
-        minBatchSize: parseInt(process.env.COALESCER_MIN_BATCH_SIZE) || 50
+        maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 10000
       }
     );
 
@@ -255,14 +273,14 @@ class DIContainer {
     this.instances.requestCoalescer.processor = (dataArray) =>
       this.instances.logIngestionService.processBatch(dataArray);
 
-    console.log('[DIContainer] Application services initialized');
+    this.logger.info('Application services initialized');
   }
 
   async _initializeAdapters() {
-    console.log('[DIContainer] Phase 5: Initializing interface adapters...');
+    this.logger.info('Phase 5: Initializing interface adapters...');
 
     this.instances.ingestLogController = new IngestLogController(
-      this.instances.ingestLogUseCase
+      this.instances.logIngestionService
     );
 
     this.instances.healthCheckController = new HealthCheckController(
@@ -275,7 +293,7 @@ class DIContainer {
 
     this.instances.statsController = new StatsController(
       this.instances.logRepository,
-      this.instances.optimizedIngestService,
+      this.instances.logIngestionService,
       this.instances.validationService
     );
 
@@ -295,7 +313,7 @@ class DIContainer {
       null // verifyAppAccessUseCase - not available without MongoDB
     );
 
-    console.log('[DIContainer] Interface adapters initialized');
+    this.logger.info('Interface adapters initialized');
   }
 
   get(name) {
@@ -326,7 +344,7 @@ class DIContainer {
   }
 
   async cleanup() {
-    console.log('[DIContainer] Starting graceful shutdown...');
+    this.logger.info('Starting graceful shutdown...');
 
     try {
       // Phase 1: Cleanup interface adapters
@@ -344,26 +362,26 @@ class DIContainer {
       // Phase 5: Cleanup infrastructure
       await this._cleanupInfrastructure();
 
-      console.log('[DIContainer] Graceful shutdown completed');
+      this.logger.info('Graceful shutdown completed');
     } catch (error) {
-      console.error('[DIContainer] Error during shutdown:', error);
+      this.logger.error('Error during shutdown', { error });
       throw error;
     }
   }
 
   async _cleanupAdapters() {
-    console.log('[DIContainer] Cleaning up interface adapters...');
+    this.logger.debug('Cleaning up interface adapters...');
   }
 
   async _cleanupCoreServices() {
-    console.log('[DIContainer] Cleaning up application services...');
+    this.logger.debug('Cleaning up application services...');
     if (this.instances.optimizedIngestService) {
       await this.instances.optimizedIngestService.flush();
     }
   }
 
   async _cleanupWorkers() {
-    console.log('[DIContainer] Cleaning up workers...');
+    this.logger.debug('Cleaning up workers...');
     if (this.instances.validationService) {
       await this.instances.validationService.shutdown();
     }
@@ -375,10 +393,19 @@ class DIContainer {
       // Backward compatibility
       await this.instances.logProcessorWorker.stop();
     }
+
+    // Close dedicated worker Redis connections
+    if (this.instances.workerRedisClients) {
+      this.logger.debug('Closing worker Redis connections', { count: this.instances.workerRedisClients.length });
+      await Promise.all(
+        this.instances.workerRedisClients.map(client => client.quit())
+      );
+      this.instances.workerRedisClients = [];
+    }
   }
 
   async _cleanupRepositories() {
-    console.log('[DIContainer] Cleaning up repositories...');
+    this.logger.debug('Cleaning up repositories...');
     // Note: ClickHouseRepository is stateless - no buffer to flush
     // BatchBuffer cleanup happens in _cleanupWorkers via LogProcessorWorker.stop()
     if (this.instances.clickhouseRetryStrategy) {
@@ -387,7 +414,7 @@ class DIContainer {
   }
 
   async _cleanupInfrastructure() {
-    console.log('[DIContainer] Cleaning up infrastructure...');
+    this.logger.debug('Cleaning up infrastructure...');
     if (this.instances.clickhouseClient) {
       await this.instances.clickhouseClient.close();
     }

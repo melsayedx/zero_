@@ -11,6 +11,8 @@
 
 const path = require('path');
 const LogLevel = require('../../domain/value-objects/log-level');
+const LoggerFactory = require('../../infrastructure/logging/logger-factory');
+const logger = LoggerFactory.named('ProtobufParser');
 
 /**
  * ProtobufParser class for handling protobuf log entries
@@ -80,9 +82,9 @@ class ProtobufParser {
       }
 
       this.initialized = true;
-      console.log(`[ProtobufParser] Initialized in ${this.loadMode} mode`);
+      logger.info(`ProtobufParser initialized in ${this.loadMode} mode`);
     } catch (error) {
-      console.error('[ProtobufParser] Failed to initialize:', error);
+      logger.error('ProtobufParser failed to initialize', { error });
       throw new Error(`Failed to initialize protobuf parser: ${error.message}`);
     }
   }

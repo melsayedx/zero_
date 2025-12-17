@@ -8,9 +8,12 @@ const jwt = require('jsonwebtoken');
 class LoginUserUseCase {
   /**
    * @param {UserRepositoryContract} userRepository - User repository implementation
+   * @param {Object} [options={}] - Options
+   * @param {Logger} [options.logger] - Logger instance
    */
-  constructor(userRepository) {
+  constructor(userRepository, options = {}) {
     this.userRepository = userRepository;
+    this.logger = options.logger;
     this.jwtSecret = process.env.JWT_SECRET || 'default-secret-change-in-production';
     this.jwtExpiration = process.env.JWT_EXPIRATION || '7d';
   }
@@ -79,7 +82,9 @@ class LoginUserUseCase {
       };
 
     } catch (error) {
-      console.error('[LoginUserUseCase] Error:', error);
+      if (this.logger) {
+        this.logger.error('LoginUserUseCase error', { error });
+      }
       return {
         success: false,
         message: 'Failed to login',

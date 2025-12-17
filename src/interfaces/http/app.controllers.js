@@ -2,6 +2,9 @@
  * App Controllers
  * Handles HTTP requests for app management (create, list, get)
  */
+const { LoggerFactory } = require('../../infrastructure/logging');
+
+const logger = LoggerFactory.named('AppController');
 
 /**
  * Create App Controller
@@ -29,7 +32,7 @@ class CreateAppController {
 
       return reply.code(201).send(result);
     } catch (error) {
-      console.error('[CreateAppController] Error:', error);
+      logger.error('CreateAppController error', { error });
       return reply.code(500).send({
         success: false,
         message: 'Internal server error'
@@ -56,7 +59,7 @@ class ListAppsController {
 
       return reply.code(200).send(result);
     } catch (error) {
-      console.error('[ListAppsController] Error:', error);
+      logger.error('ListAppsController error', { error });
       return reply.code(500).send({
         success: false,
         message: 'Internal server error',
@@ -101,7 +104,7 @@ class GetAppController {
         message: 'App retrieved successfully'
       });
     } catch (error) {
-      console.error('[GetAppController] Error:', error);
+      logger.error('GetAppController error', { error });
       return reply.code(500).send({
         success: false,
         message: 'Internal server error'

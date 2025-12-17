@@ -47,15 +47,18 @@ class RedisStreamQueue {
         if (!redisClient) {
             throw new Error('Redis client is required');
         }
+        if (!options.logger) {
+            throw new Error('Logger is required - must be injected from DI container');
+        }
 
         this.redis = redisClient;
+        this.logger = options.logger;
         this.streamKey = options.streamKey || 'logs:stream';
         this.groupName = options.groupName || 'log-processors';
         this.consumerName = options.consumerName || `worker-${process.pid}`;
         this.batchSize = options.batchSize || 2000;
-        this.blockMs = options.blockMs || 5000;
+        this.blockMs = options.blockMs || 100;  // Short block for responsive event loop
         this.claimMinIdleMs = options.claimMinIdleMs || 30000;
-        this.enableLogging = options.enableLogging !== false;
 
         this.isInitialized = false;
     }
@@ -85,18 +88,14 @@ class RedisStreamQueue {
                 'MKSTREAM' // Create stream if it doesn't exist
             );
 
-            if (this.enableLogging) {
-                console.log(`[RedisStreamQueue] Created consumer group '${this.groupName}' for stream '${this.streamKey}'`);
-            }
+            this.logger.info('Created consumer group', { groupName: this.groupName, streamKey: this.streamKey });
         } catch (error) {
             // BUSYGROUP means group already exists - that's fine
             if (!error.message.includes('BUSYGROUP')) {
                 throw error;
             }
 
-            if (this.enableLogging) {
-                console.log(`[RedisStreamQueue] Consumer group '${this.groupName}' already exists`);
-            }
+            this.logger.debug('Consumer group already exists', { groupName: this.groupName });
         }
 
         // Recover pending messages from crashed workers
@@ -104,14 +103,12 @@ class RedisStreamQueue {
 
         this.isInitialized = true;
 
-        if (this.enableLogging) {
-            console.log('[RedisStreamQueue] Initialized:', {
-                streamKey: this.streamKey,
-                groupName: this.groupName,
-                consumerName: this.consumerName,
-                batchSize: this.batchSize
-            });
-        }
+        this.logger.info('RedisStreamQueue initialized', {
+            streamKey: this.streamKey,
+            groupName: this.groupName,
+            consumerName: this.consumerName,
+            batchSize: this.batchSize
+        });
     }
 
     /**
@@ -149,18 +146,14 @@ class RedisStreamQueue {
                     }
                 }
 
-                if (this.enableLogging) {
-                    console.log(`[RedisStreamQueue] Recovered ${recoveredMessages.length} pending messages`);
-                }
+                this.logger.info('Recovered pending messages', { count: recoveredMessages.length });
             }
         } catch (error) {
             // XAUTOCLAIM might not be available in older Redis versions
             if (error.message.includes('unknown command')) {
-                if (this.enableLogging) {
-                    console.warn('[RedisStreamQueue] XAUTOCLAIM not available, skipping pending recovery');
-                }
+                this.logger.warn('XAUTOCLAIM not available, skipping pending recovery');
             } else {
-                console.error('[RedisStreamQueue] Error recovering pending messages:', error.message);
+                this.logger.error('Error recovering pending messages', { error: error.message });
             }
         }
 
@@ -216,7 +209,7 @@ class RedisStreamQueue {
 
             return parsedMessages;
         } catch (error) {
-            console.error('[RedisStreamQueue] Error reading from stream:', error.message);
+            this.logger.error('Error reading from stream', { error: error.message });
             throw error;
         }
     }
@@ -250,13 +243,13 @@ class RedisStreamQueue {
                 ...messageIds
             );
 
-            if (this.enableLogging && acknowledged > 0) {
-                console.log(`[RedisStreamQueue] Acknowledged ${acknowledged} messages`);
+            if (acknowledged > 0) {
+                this.logger.debug('Acknowledged messages', { count: acknowledged });
             }
 
             return acknowledged;
         } catch (error) {
-            console.error('[RedisStreamQueue] Error acknowledging messages:', error.message);
+            this.logger.error('Error acknowledging messages', { error: error.message });
             throw error;
         }
     }
@@ -290,7 +283,7 @@ class RedisStreamQueue {
 
         for (const [err, id] of results) {
             if (err) {
-                console.error('[RedisStreamQueue] Error adding message:', err.message);
+                this.logger.error('Error adding message', { error: err.message });
             } else {
                 ids.push(id);
             }
@@ -315,7 +308,7 @@ class RedisStreamQueue {
                 consumers: info[3] || []
             };
         } catch (error) {
-            console.error('[RedisStreamQueue] Error getting pending info:', error.message);
+            this.logger.error('Error getting pending info', { error: error.message });
             return { pendingCount: 0, consumers: [] };
         }
     }
@@ -360,7 +353,7 @@ class RedisStreamQueue {
             // Fallback: return all fields as data
             return { id, data: fieldMap };
         } catch (error) {
-            console.error(`[RedisStreamQueue] Error parsing message ${id}:`, error.message);
+            this.logger.error('Error parsing message', { id, error: error.message });
             return null;
         }
     }
@@ -375,7 +368,7 @@ class RedisStreamQueue {
         try {
             return await this.redis.xtrim(this.streamKey, 'MAXLEN', '~', maxLen);
         } catch (error) {
-            console.error('[RedisStreamQueue] Error trimming stream:', error.message);
+            this.logger.error('Error trimming stream', { error: error.message });
             return 0;
         }
     }
@@ -386,12 +379,8 @@ class RedisStreamQueue {
      * @returns {Promise<void>}
      */
     async shutdown() {
-        if (this.enableLogging) {
-            const pending = await this.getPendingInfo();
-            console.log('[RedisStreamQueue] Shutting down:', {
-                pendingCount: pending.pendingCount
-            });
-        }
+        const pending = await this.getPendingInfo();
+        this.logger.info('Shutting down', { pendingCount: pending.pendingCount });
         this.isInitialized = false;
     }
 }

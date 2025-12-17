@@ -22,6 +22,9 @@
  * ```
  */
 
+const { LoggerFactory } = require('../../infrastructure/logging');
+const logger = LoggerFactory.named('IdempotencyMiddleware');
+
 /**
  * Create idempotency preHandler middleware for Fastify.
  *
@@ -32,12 +35,10 @@
  * @param {IdempotencyContract} idempotencyStore - Idempotency store instance
  * @param {Object} [options={}] - Configuration options
  * @param {string} [options.headerName='idempotency-key'] - Header name to check
- * @param {boolean} [options.enableLogging=false] - Enable debug logging
  * @returns {Function} Fastify preHandler function
  */
 function createIdempotencyMiddleware(idempotencyStore, options = {}) {
     const headerName = (options.headerName || 'idempotency-key').toLowerCase();
-    const enableLogging = options.enableLogging || false;
 
     return async function idempotencyMiddleware(request, reply) {
         // Get idempotency key from header (case-insensitive)
@@ -61,9 +62,7 @@ function createIdempotencyMiddleware(idempotencyStore, options = {}) {
             const cachedResponse = await idempotencyStore.get(idempotencyKey);
 
             if (cachedResponse) {
-                if (enableLogging) {
-                    console.log(`[IdempotencyMiddleware] Returning cached response for key: ${idempotencyKey}`);
-                }
+                logger.debug('Returning cached response', { key: idempotencyKey });
 
                 // Return cached response
                 return reply
@@ -75,11 +74,9 @@ function createIdempotencyMiddleware(idempotencyStore, options = {}) {
             // Store key on request for later caching in onSend hook
             request.idempotencyKey = idempotencyKey;
 
-            if (enableLogging) {
-                console.log(`[IdempotencyMiddleware] Processing new request with key: ${idempotencyKey}`);
-            }
+            logger.debug('Processing new request', { key: idempotencyKey });
         } catch (error) {
-            console.error('[IdempotencyMiddleware] Error checking idempotency:', error.message);
+            logger.error('Error checking idempotency', { error: error.message });
             // Fail open - allow request to proceed
         }
     };
@@ -94,12 +91,9 @@ function createIdempotencyMiddleware(idempotencyStore, options = {}) {
  * @param {IdempotencyContract} idempotencyStore - Idempotency store instance
  * @param {Object} [options={}] - Configuration options
  * @param {number} [options.ttl] - TTL in seconds (uses store default if not provided)
- * @param {boolean} [options.enableLogging=false] - Enable debug logging
- * @returns {Function} Fastify onSend hook function
  */
 function createIdempotencyHook(idempotencyStore, options = {}) {
     const ttl = options.ttl;
-    const enableLogging = options.enableLogging || false;
 
     return async function idempotencyOnSend(request, reply, payload) {
         // Only cache if we have an idempotency key
@@ -130,12 +124,10 @@ function createIdempotencyHook(idempotencyStore, options = {}) {
         // Non-blocking cache write - errors are logged but don't affect response
         idempotencyStore.set(idempotencyKey, responseToCache, ttl)
             .then(() => {
-                if (enableLogging) {
-                    console.log(`[IdempotencyMiddleware] Cached response for key: ${idempotencyKey}`);
-                }
+                logger.debug('Cached response', { key: idempotencyKey });
             })
             .catch(error => {
-                console.error('[IdempotencyMiddleware] Error caching response:', error.message);
+                logger.error('Error caching response', { error: error.message });
             });
 
         return payload;

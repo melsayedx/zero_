@@ -21,6 +21,7 @@ class WorkerPool extends EventEmitter {
     super();
 
     // Configuration
+    this.logger = options.logger;
     this.workerPath = options.workerPath || path.join(__dirname, 'validation-worker.js');
     this.minWorkers = options.minWorkers || Math.max(1, Math.floor(os.cpus().length / 2));
     this.maxWorkers = options.maxWorkers || Math.min(os.cpus().length, 8);
@@ -52,7 +53,9 @@ class WorkerPool extends EventEmitter {
     this.initialize();
     this.startHealthChecks();
 
-    console.log(`[WorkerPool] Initialized with ${this.minWorkers}-${this.maxWorkers} workers`);
+    if (this.logger) {
+      this.logger.info('WorkerPool initialized', { minWorkers: this.minWorkers, maxWorkers: this.maxWorkers });
+    }
   }
 
   /**
@@ -98,7 +101,9 @@ class WorkerPool extends EventEmitter {
 
     // Handle worker errors
     worker.on('error', (error) => {
-      console.error(`[WorkerPool] Worker ${workerId} error:`, error.message);
+      if (this.logger) {
+        this.logger.error('Worker error', { workerId, error: error.message });
+      }
       workerState.health = 'error';
       this.metrics.unhealthyWorkers++;
       this.handleWorkerFailure(workerId);
@@ -106,7 +111,9 @@ class WorkerPool extends EventEmitter {
 
     // Handle worker exit
     worker.on('exit', (code) => {
-      console.log(`[WorkerPool] Worker ${workerId} exited with code ${code}`);
+      if (this.logger) {
+        this.logger.warn('Worker exited', { workerId, code });
+      }
       this.removeWorker(workerId);
 
       // Replace worker if we're below minimum
@@ -371,7 +378,9 @@ class WorkerPool extends EventEmitter {
    * Graceful shutdown
    */
   async shutdown() {
-    console.log('[WorkerPool] Shutting down...');
+    if (this.logger) {
+      this.logger.info('WorkerPool shutting down...');
+    }
 
     // Stop accepting new tasks
     this.taskQueue = [];
@@ -391,7 +400,10 @@ class WorkerPool extends EventEmitter {
     await Promise.all(shutdownPromises);
 
     this.workers.clear();
-    console.log('[WorkerPool] Shutdown complete');
+    this.workers.clear();
+    if (this.logger) {
+      this.logger.info('WorkerPool shutdown complete');
+    }
   }
 }
 

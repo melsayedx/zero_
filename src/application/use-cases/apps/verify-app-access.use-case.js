@@ -5,9 +5,12 @@
 class VerifyAppAccessUseCase {
   /**
    * @param {AppRepositoryContract} appRepository - App repository implementation
+   * @param {Object} [options={}] - Options
+   * @param {Logger} [options.logger] - Logger instance
    */
-  constructor(appRepository) {
+  constructor(appRepository, options = {}) {
     this.appRepository = appRepository;
+    this.logger = options.logger;
   }
 
   /**
@@ -51,7 +54,9 @@ class VerifyAppAccessUseCase {
       };
 
     } catch (error) {
-      console.error('[VerifyAppAccessUseCase] Error:', error);
+      if (this.logger) {
+        this.logger.error('VerifyAppAccessUseCase error', { error });
+      }
       return {
         success: false,
         hasAccess: false,
@@ -69,7 +74,7 @@ class VerifyAppAccessUseCase {
    */
   async verifyOrThrow(input) {
     const result = await this.execute(input);
-    
+
     if (!result.success) {
       throw new Error(result.message || 'Failed to verify app access');
     }

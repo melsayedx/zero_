@@ -6,6 +6,9 @@
 
 const ProtobufParser = require('../parser/protobuf-parser');
 const fp = require('fastify-plugin');
+const { LoggerFactory } = require('../../infrastructure/logging');
+
+const logger = LoggerFactory.named('ContentParser');
 
 /**
  * Fastify plugin to add content type parsers for JSON and Protocol Buffer formats
@@ -29,10 +32,10 @@ function contentParserPlugin(fastify, options, next) {
   const initPromise = ProtobufParser.getInstance()
     .then(parser => {
       protobufParser = parser;
-      console.log('[ContentParser] Protobuf parser initialized');
+      logger.info('Protobuf parser initialized');
     })
     .catch(error => {
-      console.error('[ContentParser] Failed to initialize protobuf parser:', error);
+      logger.error('Failed to initialize protobuf parser', { error });
       next(error);
     });
 
@@ -76,7 +79,7 @@ function contentParserPlugin(fastify, options, next) {
       try {
         return await parseProtobuf(request, payload, false);
       } catch (error) {
-        console.error('[ContentParser] Error parsing protobuf single entry:', error);
+        logger.error('Error parsing protobuf single entry', { error });
         throw error;
       }
     }
@@ -88,7 +91,7 @@ function contentParserPlugin(fastify, options, next) {
       try {
         return await parseProtobuf(request, payload, true);
       } catch (error) {
-        console.error('[ContentParser] Error parsing protobuf batch:', error);
+        logger.error('Error parsing protobuf batch', { error });
         throw error;
       }
     }

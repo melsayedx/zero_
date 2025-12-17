@@ -2,6 +2,9 @@
  * Authentication Controllers
  * Handles HTTP requests for user authentication (register, login, me)
  */
+const { LoggerFactory } = require('../../infrastructure/logging');
+
+const logger = LoggerFactory.named('AuthController');
 
 /**
  * Register Controller
@@ -25,7 +28,7 @@ class RegisterController {
 
       return reply.code(201).send(result);
     } catch (error) {
-      console.error('[RegisterController] Error:', error);
+      logger.error('RegisterController error', { error });
       return reply.code(500).send({
         success: false,
         message: 'Internal server error'
@@ -56,7 +59,7 @@ class LoginController {
 
       return reply.code(200).send(result);
     } catch (error) {
-      console.error('[LoginController] Error:', error);
+      logger.error('LoginController error', { error });
       return reply.code(500).send({
         success: false,
         message: 'Internal server error'
@@ -85,7 +88,7 @@ class MeController {
         user: request.user
       });
     } catch (error) {
-      console.error('[MeController] Error:', error);
+      logger.error('MeController error', { error });
       return reply.code(500).send({
         success: false,
         message: 'Internal server error'

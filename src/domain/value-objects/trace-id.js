@@ -15,11 +15,11 @@
  * ```javascript
  * // Create with valid trace ID
  * const traceId = new TraceId('12345678-1234-1234-1234-123456789abc');
- * console.log(traceId.value); // '12345678-1234-1234-1234-123456789abc'
+ * logger.info(traceId.value); // '12345678-1234-1234-1234-123456789abc'
  *
  * // Create with null (tracing not available)
  * const emptyTrace = new TraceId(null);
- * console.log(emptyTrace.isEmpty()); // true
+ * logger.info(emptyTrace.isEmpty()); // true
  *
  * // Using factory method
  * const trace = TraceId.create('some-trace-id');
@@ -54,7 +54,7 @@ class TraceId {
    * const emptyTrace = new TraceId('');
    *
    * // Both result in isEmpty() === true
-   * console.log(noTrace.isEmpty()); // true
+   * logger.info(noTrace.isEmpty()); // true
    * ```
    */
   constructor(value) {
@@ -119,7 +119,7 @@ class TraceId {
    * ```javascript
    * const traceId = new TraceId(null);
    * if (traceId.isEmpty()) {
-   *   console.log('No trace context available');
+   *   logger.info('No trace context available');
    * }
    * ```
    */
@@ -138,8 +138,8 @@ class TraceId {
    * @example
    * ```javascript
    * const traceId = new TraceId('abc-123');
-   * console.log(`Trace: ${traceId}`); // Implicit toString()
-   * console.log(traceId.toString());  // Explicit call
+   * logger.info(`Trace: ${traceId}`); // Implicit toString()
+   * logger.info(traceId.toString());  // Explicit call
    * ```
    */
   toString() {

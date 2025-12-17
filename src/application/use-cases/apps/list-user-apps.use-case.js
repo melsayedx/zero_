@@ -5,9 +5,12 @@
 class ListUserAppsUseCase {
   /**
    * @param {AppRepositoryContract} appRepository - App repository implementation
+   * @param {Object} [options={}] - Options
+   * @param {Logger} [options.logger] - Logger instance
    */
-  constructor(appRepository) {
+  constructor(appRepository, options = {}) {
     this.appRepository = appRepository;
+    this.logger = options.logger;
   }
 
   /**
@@ -42,7 +45,9 @@ class ListUserAppsUseCase {
       };
 
     } catch (error) {
-      console.error('[ListUserAppsUseCase] Error:', error);
+      if (this.logger) {
+        this.logger.error('ListUserAppsUseCase error', { error });
+      }
       return {
         success: false,
         message: 'Failed to retrieve apps',

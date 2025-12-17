@@ -1,5 +1,8 @@
 const jwt = require('jsonwebtoken');
 const fp = require('fastify-plugin');
+const { LoggerFactory } = require('../../infrastructure/logging');
+
+const logger = LoggerFactory.named('AuthMiddleware');
 
 /**
  * JWT Authentication Plugin for Fastify
@@ -71,7 +74,7 @@ class AuthMiddleware {
         }
 
         // Other errors
-        console.error('[AuthMiddleware] Error:', error);
+        logger.error('Authentication error', { error });
         return reply.code(401).send({
           success: false,
           message: 'Authentication failed'

@@ -77,6 +77,7 @@ class ClickHouseRepository extends LogRepositoryContract {
 
     // Query cache - use provided cache or default to in-memory
     this.queryCache = options.queryCache || new InMemoryQueryCache();
+    this.logger = options.logger;
 
     // Health check cache to avoid repeated checks within short intervals
     this.lastHealthCheck = null;
@@ -628,7 +629,7 @@ class ClickHouseRepository extends LogRepositoryContract {
         }
       } catch (error) {
         if (error.code === 'ABORT_ERR' || error.name === 'AbortError') {
-          console.warn('Stats query stream aborted');
+          if (this.logger) this.logger.warn('Stats query stream aborted');
           // Return partial stats if available
         } else {
           throw error;

@@ -18,8 +18,12 @@ class ClusterWorker {
     if (cluster.isMaster || cluster.isPrimary) {
       throw new Error('ClusterWorker should only be instantiated in worker processes');
     }
+    if (!options.logger) {
+      throw new Error('Logger is required - must be injected from DI container');
+    }
 
     this.app = app;
+    this.logger = options.logger;
     this.workerId = cluster.worker.id;
     this.options = options;
 
@@ -35,7 +39,7 @@ class ClusterWorker {
     this.setupMasterMessageHandlers();
     this.startHealthReporting();
 
-    console.log(`[ClusterWorker ${this.workerId}] Process ${process.pid} started`);
+    this.logger.info('Worker process started', { workerId: this.workerId, pid: process.pid });
   }
 
   /**
@@ -55,9 +59,9 @@ class ClusterWorker {
         }
       });
 
-      console.log(`[ClusterWorker ${this.workerId}] Initialized and ready`);
+      this.logger.info('Initialized and ready', { workerId: this.workerId });
     } catch (error) {
-      console.error(`[ClusterWorker ${this.workerId}] Initialization failed:`, error);
+      this.logger.error('Initialization failed', { workerId: this.workerId, error });
       this.sendToMaster({
         type: 'error',
         data: {
@@ -75,7 +79,7 @@ class ClusterWorker {
   setupProcessHandlers() {
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {
-      console.error(`[ClusterWorker ${this.workerId}] Uncaught exception:`, error);
+      this.logger.error('Uncaught exception', { workerId: this.workerId, error });
       this.sendToMaster({
         type: 'error',
         data: {
@@ -91,7 +95,7 @@ class ClusterWorker {
 
     // Handle unhandled promise rejections
     process.on('unhandledRejection', (reason, promise) => {
-      console.error(`[ClusterWorker ${this.workerId}] Unhandled rejection:`, reason);
+      this.logger.error('Unhandled rejection', { workerId: this.workerId, reason });
       this.sendToMaster({
         type: 'error',
         data: {
@@ -104,19 +108,19 @@ class ClusterWorker {
 
     // Handle disconnect from master
     process.on('disconnect', () => {
-      console.log(`[ClusterWorker ${this.workerId}] Disconnected from master, shutting down...`);
+      this.logger.info('Disconnected from master, shutting down', { workerId: this.workerId });
       this.gracefulShutdown();
     });
 
     // Handle SIGTERM
     process.on('SIGTERM', () => {
-      console.log(`[ClusterWorker ${this.workerId}] Received SIGTERM, shutting down...`);
+      this.logger.info('Received SIGTERM, shutting down', { workerId: this.workerId });
       this.gracefulShutdown();
     });
 
     // Handle SIGINT
     process.on('SIGINT', () => {
-      console.log(`[ClusterWorker ${this.workerId}] Received SIGINT, shutting down...`);
+      this.logger.info('Received SIGINT, shutting down', { workerId: this.workerId });
       this.gracefulShutdown();
     });
   }
@@ -219,7 +223,7 @@ class ClusterWorker {
    * Handle configuration updates from master
    */
   handleConfigUpdate(config) {
-    console.log(`[ClusterWorker ${this.workerId}] Received config update:`, config);
+    this.logger.info('Received config update', { workerId: this.workerId, config });
 
     if (this.app.updateConfig) {
       this.app.updateConfig(config);
@@ -235,7 +239,7 @@ class ClusterWorker {
         process.send(message);
       }
     } catch (error) {
-      console.error(`[ClusterWorker ${this.workerId}] Failed to send message to master:`, error.message);
+      this.logger.error('Failed to send message to master', { workerId: this.workerId, error: error.message });
     }
   }
 
@@ -250,7 +254,7 @@ class ClusterWorker {
    * Graceful shutdown
    */
   async gracefulShutdown() {
-    console.log(`[ClusterWorker ${this.workerId}] Starting graceful shutdown...`);
+    this.logger.info('Starting graceful shutdown', { workerId: this.workerId });
 
     try {
       // Stop accepting new connections
@@ -271,10 +275,10 @@ class ClusterWorker {
         await this.app.shutdown();
       }
 
-      console.log(`[ClusterWorker ${this.workerId}] Graceful shutdown complete`);
+      this.logger.info('Graceful shutdown complete', { workerId: this.workerId });
       process.exit(0);
     } catch (error) {
-      console.error(`[ClusterWorker ${this.workerId}] Shutdown error:`, error);
+      this.logger.error('Shutdown error', { workerId: this.workerId, error });
       process.exit(1);
     }
   }

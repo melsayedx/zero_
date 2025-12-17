@@ -2,6 +2,9 @@
  * HTTP Controllers
  * Handle HTTP requests and responses
  */
+const { LoggerFactory } = require('../../infrastructure/logging');
+
+const logger = LoggerFactory.named('HTTPController');
 
 /**
  * Controller for ingesting log entries
@@ -9,17 +12,17 @@
  * This is a PRIMARY ADAPTER that depends on the IngestLogPort (input port)
  */
 class IngestLogController {
-  constructor(ingestLogUseCase) {
-    if (!ingestLogUseCase) {
-      throw new Error('IngestLogUseCase is required');
+  constructor(ingestionService) {
+    if (!ingestionService) {
+      throw new Error('IngestionService is required');
     }
 
-    // Validate that the use case implements the input port interface
-    if (typeof ingestLogUseCase.execute !== 'function') {
-      throw new Error('IngestLogUseCase must implement the execute() method from IngestLogPort');
+    // Validate that the service implements the ingest method
+    if (typeof ingestionService.ingest !== 'function' && typeof ingestionService.execute !== 'function') {
+      throw new Error('IngestionService must implement the ingest() or execute() method');
     }
 
-    this.ingestLogUseCase = ingestLogUseCase;
+    this.ingestionService = ingestionService;
   }
 
   /**
@@ -38,7 +41,9 @@ class IngestLogController {
         logData = [logData];
       }
 
-      const result = await this.ingestLogUseCase.execute(logData);
+      // Support both define patterns (Service.ingest or UseCase.execute)
+      const method = this.ingestionService.ingest ? 'ingest' : 'execute';
+      const result = await this.ingestionService[method](logData);
 
       if (result.isFullSuccess() || result.isPartialSuccess()) {
         return reply.code(202).send({
@@ -58,7 +63,7 @@ class IngestLogController {
         });
       }
     } catch (error) {
-      console.error('[IngestLogController] Error:', error.message);
+      logger.error('IngestLogController error', { error: error.message });
       return reply.code(500).send({
         success: false,
         message: 'Internal server error',

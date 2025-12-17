@@ -37,7 +37,7 @@ class LogRepositoryContract {
    * @example
    * ```javascript
    * const result = await repository.save([entry1, entry2, entry3]);
-   * console.log(`Saved ${result.count} logs`);
+   * logger.info(`Saved ${result.count} logs`);
    * ```
    */
   async save(logEntries) {
@@ -63,7 +63,7 @@ class LogRepositoryContract {
    *   filter: { appId: 'my-app', level: 'ERROR' },
    *   limit: 50
    * });
-   * console.log(`Found ${result.logs.length} logs`);
+   * logger.info(`Found ${result.logs.length} logs`);
    * ```
    */
   async findBy({ filter = {}, limit = 100, cursor = null, sort = null }) {
@@ -81,7 +81,7 @@ class LogRepositoryContract {
    * @example
    * ```javascript
    * const stats = await repository.getStats();
-   * console.log(`Queue length: ${stats.queueLength}`);
+   * logger.info(`Queue length: ${stats.queueLength}`);
    * ```
    */
   async getStats() {
@@ -100,7 +100,7 @@ class LogRepositoryContract {
    * ```javascript
    * const health = await repository.healthCheck();
    * if (!health.healthy) {
-   *   console.error(`Repository unhealthy: ${health.error}`);
+   *   logger.error(`Repository unhealthy: ${health.error}`);
    * }
    * ```
    */

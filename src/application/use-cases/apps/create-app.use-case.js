@@ -7,9 +7,12 @@ const App = require('../../../domain/entities/app.entity');
 class CreateAppUseCase {
   /**
    * @param {AppRepositoryContract} appRepository - App repository implementation
+   * @param {Object} [options={}] - Options
+   * @param {Logger} [options.logger] - Logger instance
    */
-  constructor(appRepository) {
+  constructor(appRepository, options = {}) {
     this.appRepository = appRepository;
+    this.logger = options.logger;
   }
 
   /**
@@ -69,7 +72,9 @@ class CreateAppUseCase {
       };
 
     } catch (error) {
-      console.error('[CreateAppUseCase] Error:', error);
+      if (this.logger) {
+        this.logger.error('CreateAppUseCase error', { error });
+      }
       return {
         success: false,
         message: 'Failed to create app',

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { LoggerFactory } = require('../logging');
 
 /**
  * MongoDB Connection Manager
@@ -8,6 +9,7 @@ class MongoDBConnection {
   constructor() {
     this.connection = null;
     this.isConnected = false;
+    this.logger = LoggerFactory.named('MongoDB');
   }
 
   /**
@@ -17,7 +19,7 @@ class MongoDBConnection {
    */
   async connect(uri) {
     if (this.isConnected && this.connection) {
-      console.log('MongoDB already connected');
+      this.logger.debug('MongoDB already connected');
       return this.connection;
     }
 
@@ -34,22 +36,22 @@ class MongoDBConnection {
 
       // Connection event handlers
       this.connection.on('connected', () => {
-        console.log('MongoDB connected successfully');
+        this.logger.info('MongoDB connected successfully');
       });
 
       this.connection.on('error', (err) => {
-        console.error('MongoDB connection error:', err);
+        this.logger.error('MongoDB connection error', { error: err });
         this.isConnected = false;
       });
 
       this.connection.on('disconnected', () => {
-        console.log('MongoDB disconnected');
+        this.logger.info('MongoDB disconnected');
         this.isConnected = false;
       });
 
       return this.connection;
     } catch (error) {
-      console.error('Failed to connect to MongoDB:', error);
+      this.logger.error('Failed to connect to MongoDB', { error });
       this.isConnected = false;
       throw error;
     }
@@ -61,7 +63,7 @@ class MongoDBConnection {
    */
   async disconnect() {
     if (!this.isConnected || !this.connection) {
-      console.log('MongoDB not connected, skipping disconnect');
+      this.logger.debug('MongoDB not connected, skipping disconnect');
       return;
     }
 
@@ -69,9 +71,9 @@ class MongoDBConnection {
       await mongoose.disconnect();
       this.isConnected = false;
       this.connection = null;
-      console.log('MongoDB disconnected successfully');
+      this.logger.info('MongoDB disconnected successfully');
     } catch (error) {
-      console.error('Error disconnecting from MongoDB:', error);
+      this.logger.error('Error disconnecting from MongoDB', { error });
       throw error;
     }
   }

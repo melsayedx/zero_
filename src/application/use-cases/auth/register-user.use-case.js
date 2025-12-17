@@ -9,9 +9,12 @@ const User = require('../../../domain/entities/user.entity');
 class RegisterUserUseCase {
   /**
    * @param {UserRepositoryPort} userRepository - User repository implementation
+   * @param {Object} [options={}] - Options
+   * @param {Logger} [options.logger] - Logger instance
    */
-  constructor(userRepository) {
+  constructor(userRepository, options = {}) {
     this.userRepository = userRepository;
+    this.logger = options.logger;
   }
 
   /**
@@ -107,7 +110,9 @@ class RegisterUserUseCase {
       };
 
     } catch (error) {
-      console.error('[RegisterUserUseCase] Error:', error);
+      if (this.logger) {
+        this.logger.error('RegisterUserUseCase error', { error });
+      }
       return {
         success: false,
         message: 'Failed to register user',

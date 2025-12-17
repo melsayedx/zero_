@@ -85,6 +85,7 @@ class LogIngestionService {
   constructor(ingestUseCase, coalescer, options = {}) {
     this.ingestUseCase = ingestUseCase;
     this.coalescer = coalescer;
+    this.logger = options.logger;
 
     // Configuration
     this.useCoalescing = options.useCoalescing !== false;
@@ -98,10 +99,12 @@ class LogIngestionService {
       coalescedRequests: 0
     };
 
-    console.log('[LogIngestionService] Initialized with config:', {
-      useCoalescing: this.useCoalescing,
-      coalescerEnabled: this.coalescer.enabled
-    });
+    if (this.logger) {
+      this.logger.info('LogIngestionService initialized', {
+        useCoalescing: this.useCoalescing,
+        coalescerEnabled: this.coalescer.enabled
+      });
+    }
   }
 
   /**
@@ -267,7 +270,9 @@ class LogIngestionService {
     }
 
     try {
-      console.log('Processing batch of', allLogs.length, 'logs');
+      if (this.logger) {
+        this.logger.debug('Processing batch', { count: allLogs.length });
+      }
       // Process through use case with raw logs
       const batchResult = await this.ingestUseCase.execute(allLogs);
       const aggregatedErrors = Array.isArray(batchResult.errors) ? batchResult.errors : [];
@@ -448,7 +453,9 @@ class LogIngestionService {
       });
     }
 
-    console.log('[LogIngestionService] Config updated:', config);
+    if (this.logger) {
+      this.logger.info('Config updated', config);
+    }
   }
 }
 

@@ -18,7 +18,7 @@
  *
  * // Create with generated nanoid format
  * const generatedId = new AppId('app_' + nanoid());
- * console.log(generatedId.value); // 'app_abc123def456...'
+ * logger.info(generatedId.value); // 'app_abc123def456...'
  *
  * // Using factory method
  * const app = AppId.create('production-app');
@@ -130,8 +130,8 @@ class AppId {
    * @example
    * ```javascript
    * const appId = new AppId('my-app');
-   * console.log(`Application: ${appId}`); // Implicit toString()
-   * console.log(appId.toString());        // Explicit call
+   * logger.info(`Application: ${appId}`); // Implicit toString()
+   * logger.info(appId.toString());        // Explicit call
    * ```
    */
   toString() {

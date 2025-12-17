@@ -53,13 +53,14 @@ class RedisRetryStrategy extends RetryStrategyContract {
     this.maxRetries = options.maxRetries || 3;
     this.retryDelay = options.retryDelay || 1000;
     this.enableLogging = options.enableLogging !== false;
+    this.logger = options.logger;
 
     // Processing state
     this.isProcessing = false;
     this.processingTimeout = null;
 
-    if (this.enableLogging) {
-      console.log('[RedisRetryStrategy] Initialized:', {
+    if (this.logger) {
+      this.logger.info('RedisRetryStrategy initialized', {
         queue: this.queueName,
         maxRetries: this.maxRetries
       });
@@ -92,19 +93,21 @@ class RedisRetryStrategy extends RetryStrategyContract {
 
       await this.redisClient.lpush(this.queueName, JSON.stringify(deadLetterItem));
 
-      if (this.enableLogging) {
-        console.warn('[RedisRetryStrategy] Queued failed items for retry:', {
+      if (this.logger) {
+        this.logger.warn('Queued failed items for retry', {
           queue: this.queueName,
           itemCount: items.length,
           error: error.message
         });
       }
     } catch (redisError) {
-      console.error('[RedisRetryStrategy] CRITICAL: Failed to queue for retry:', {
-        redisError: redisError.message,
-        originalError: error.message,
-        itemsLost: items.length
-      });
+      if (this.logger) {
+        this.logger.error('CRITICAL: Failed to queue for retry', {
+          redisError: redisError.message,
+          originalError: error.message,
+          itemsLost: items.length
+        });
+      }
       throw redisError;
     }
   }
@@ -135,8 +138,8 @@ class RedisRetryStrategy extends RetryStrategyContract {
 
           // Check if max retries exceeded
           if (deadLetterItem.metadata.attempt >= this.maxRetries) {
-            if (this.enableLogging) {
-              console.warn('[RedisRetryStrategy] Max retries exceeded, dropping item:', {
+            if (this.logger) {
+              this.logger.warn('Max retries exceeded, dropping item', {
                 itemCount: deadLetterItem.items.length,
                 finalError: deadLetterItem.error.message
               });
@@ -157,14 +160,18 @@ class RedisRetryStrategy extends RetryStrategyContract {
             try {
               await this.redisClient.lpush(this.queueName, JSON.stringify(deadLetterItem));
             } catch (e) {
-              console.error('[RedisRetryStrategy] Failed to re-queue item:', e.message);
+              if (this.logger) {
+                this.logger.error('Failed to re-queue item', { error: e.message });
+              }
             }
           }, delay);
 
           processed++;
 
         } catch (parseError) {
-          console.error('[RedisRetryStrategy] Failed to parse dead letter item:', parseError.message);
+          if (this.logger) {
+            this.logger.error('Failed to parse dead letter item', { error: parseError.message });
+          }
           errors++;
         }
       }
@@ -207,8 +214,8 @@ class RedisRetryStrategy extends RetryStrategyContract {
       this.processingTimeout = null;
     }
 
-    if (this.enableLogging) {
-      console.log('[RedisRetryStrategy] Shutdown complete');
+    if (this.logger) {
+      this.logger.info('RedisRetryStrategy shutdown complete');
     }
   }
 }

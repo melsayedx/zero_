@@ -27,12 +27,12 @@ const AppId = require('../value-objects/app-id');
  * });
  *
  * // All fields are now primitives (ready for DB)
- * console.log(normalized.app_id);  // 'my-app'
- * console.log(normalized.level);   // 'INFO'
+ * logger.info(normalized.app_id);  // 'my-app'
+ * logger.info(normalized.level);   // 'INFO'
  *
  * // Batch processing
  * const result = await LogEntry.createBatch(rawLogs);
- * console.log(`${result.validEntries.length} valid`);
+ * logger.info(`${result.validEntries.length} valid`);
  * ```
  */
 class LogEntry {
@@ -74,7 +74,7 @@ class LogEntry {
    * ];
    *
    * const result = await LogEntry.createBatch(rawLogs);
-   * console.log(`${result.validEntries.length} valid, ${result.errors.length} errors`);
+   * logger.info(`${result.validEntries.length} valid, ${result.errors.length} errors`);
    * // Output: 2 valid, 1 errors
    * ```
    */

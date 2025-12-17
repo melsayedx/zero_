@@ -35,7 +35,7 @@
  *
  * // Manual flush (usually handled automatically)
  * const result = await buffer.flush();
- * console.log(`Flushed ${result.flushed} logs in ${result.duration}ms`);
+ * logger.info(`Flushed ${result.flushed} logs in ${result.duration}ms`);
  *
  * // Graceful shutdown (flushes remaining logs)
  * await buffer.shutdown();
@@ -66,7 +66,7 @@ class BatchBuffer {
    * @param {Object} [options={}] - Configuration options for the buffer
    * @param {number} [options.maxBatchSize=100000] - Maximum logs per batch before auto-flush (1-1000000)
    * @param {number} [options.maxWaitTime=1000] - Maximum time in ms to wait before auto-flush (100-30000)
-   * @param {boolean} [options.enableLogging=true] - Whether to enable console logging
+   * @param {boolean} [options.enableLogging=true] - Whether to enable logger logging
    * @param {Function} [options.onFlushSuccess] - Callback invoked after successful flush with flushed logs
    *
    * @example
@@ -99,7 +99,12 @@ class BatchBuffer {
     // Buffer configuration with validation
     this.maxBatchSize = Math.max(1, Math.min(1000000, options.maxBatchSize || 100000));
     this.maxWaitTime = Math.max(100, Math.min(30000, options.maxWaitTime || 1000));
-    this.enableLogging = options.enableLogging !== false;
+
+    // Logger must be injected from DI container or parent component
+    if (!options.logger) {
+      throw new Error('Logger is required - must be injected from DI container');
+    }
+    this.logger = options.logger;
 
     // Optional callback for crash-proof ACK (called after successful DB persistence)
     this.onFlushSuccess = typeof options.onFlushSuccess === 'function' ? options.onFlushSuccess : null;
@@ -129,14 +134,12 @@ class BatchBuffer {
     // Start the flush timer
     this.startFlushTimer();
 
-    if (this.enableLogging) {
-      console.log('[BatchBuffer] Initialized with config:', {
-        maxBatchSize: this.maxBatchSize,
-        maxWaitTime: this.maxWaitTime,
-        repositoryType: repository.constructor.name,
-        retryStrategyType: retryStrategy.constructor.name
-      });
-    }
+    this.logger.info('Initialized', {
+      maxBatchSize: this.maxBatchSize,
+      maxWaitTime: this.maxWaitTime,
+      repositoryType: repository.constructor.name,
+      retryStrategyType: retryStrategy.constructor.name
+    });
   }
 
   /**
@@ -212,7 +215,7 @@ class BatchBuffer {
    * ```javascript
    * // Manual flush (usually automatic)
    * const result = await buffer.flush();
-   * console.log(`Inserted ${result.flushed} logs in ${result.duration}ms`);
+   * logger.info(`Inserted ${result.flushed} logs in ${result.duration}ms`);
    * ```
    */
   async flush() {
@@ -245,18 +248,16 @@ class BatchBuffer {
           await this.onFlushSuccess(logsToFlush);
         } catch (ackError) {
           // Log but don't fail - data is already persisted
-          console.error('[BatchBuffer] onFlushSuccess callback error:', ackError.message);
+          this.logger.error('onFlushSuccess callback error', { error: ackError.message });
         }
       }
 
-      if (this.enableLogging) {
-        console.log('[BatchBuffer] Flushed successfully:', {
-          logs: logsToFlush.length,
-          duration: flushTime + 'ms',
-          buffered: this.buffer.length,
-          totalInserted: this.metrics.totalLogsInserted
-        });
-      }
+      this.logger.debug('Flushed successfully', {
+        logs: logsToFlush.length,
+        duration: flushTime + 'ms',
+        buffered: this.buffer.length,
+        totalInserted: this.metrics.totalLogsInserted
+      });
 
       return {
         flushed: logsToFlush.length,
@@ -267,13 +268,11 @@ class BatchBuffer {
     } catch (error) {
       this.metrics.totalErrors++;
 
-      if (this.enableLogging) {
-        console.error('[BatchBuffer] Flush error:', {
-          error: error.message,
-          logsLost: logsToFlush.length,
-          buffered: this.buffer.length
-        });
-      }
+      this.logger.error('Flush error', {
+        error: error.message,
+        logsLost: logsToFlush.length,
+        buffered: this.buffer.length
+      });
 
       // Queue failed batch for retry using the configured strategy
       await this.retryStrategy.queueForRetry(logsToFlush, error, {
@@ -330,9 +329,7 @@ class BatchBuffer {
     if (!this.isShuttingDown && this.buffer.length > 0) {
       this.flushTimer = setTimeout(() => {
         this.flush().catch(error => {
-          if (this.enableLogging) {
-            console.error('[BatchBuffer] Timer flush error:', error.message);
-          }
+          this.logger.error('Timer flush error', { error: error.message });
         });
       }, this.maxWaitTime);
     }
@@ -372,13 +369,13 @@ class BatchBuffer {
    *
    * @example
    * ```javascript
-   * console.log(`Buffer contains ${buffer.size()} logs`);
+   * logger.info(`Buffer contains ${buffer.size()} logs`);
    *
    * await buffer.add(logs);
-   * console.log(`After adding logs: ${buffer.size()}`); // Increased by logs.length
+   * logger.info(`After adding logs: ${buffer.size()}`); // Increased by logs.length
    *
    * await buffer.flush();
-   * console.log(`After flush: ${buffer.size()}`); // Usually 0
+   * logger.info(`After flush: ${buffer.size()}`); // Usually 0
    * ```
    */
   size() {
@@ -406,12 +403,12 @@ class BatchBuffer {
    * @example
    * ```javascript
    * const metrics = buffer.getMetrics();
-   * console.log('Buffer Health Report:');
-   * console.log(`- Total processed: ${metrics.totalLogsInserted} logs`);
-   * console.log(`- Current buffer: ${metrics.currentBufferSize} logs`);
-   * console.log(`- Average batch size: ${metrics.avgBatchSize}`);
-   * console.log(`- Error rate: ${metrics.totalErrors}/${metrics.totalFlushes}`);
-   * console.log(`- Currently flushing: ${metrics.isFlushing}`);
+   * logger.info('Buffer Health Report:');
+   * logger.info(`- Total processed: ${metrics.totalLogsInserted} logs`);
+   * logger.info(`- Current buffer: ${metrics.currentBufferSize} logs`);
+   * logger.info(`- Average batch size: ${metrics.avgBatchSize}`);
+   * logger.info(`- Error rate: ${metrics.totalErrors}/${metrics.totalFlushes}`);
+   * logger.info(`- Currently flushing: ${metrics.isFlushing}`);
    * ```
    */
   getMetrics() {
@@ -442,25 +439,23 @@ class BatchBuffer {
    * ```javascript
    * // Graceful application shutdown
    * process.on('SIGTERM', async () => {
-   *   console.log('Received shutdown signal, flushing logs...');
+   *   logger.info('Received shutdown signal, flushing logs...');
    *   try {
    *     const result = await buffer.shutdown();
-   *     console.log('Shutdown complete:', {
+   *     logger.info('Shutdown complete:', {
    *       flushed: result.flushed,
    *       failed: result.failed
    *     });
    *     process.exit(result.failed > 0 ? 1 : 0);
    *   } catch (error) {
-   *     console.error('Critical shutdown error:', error);
+   *     logger.error('Critical shutdown error:', error);
    *     process.exit(1);
    *   }
    * });
    * ```
    */
   async shutdown() {
-    if (this.enableLogging) {
-      console.log('[BatchBuffer] Shutting down...');
-    }
+    this.logger.info('Shutting down...');
 
     this.isShuttingDown = true;
     let totalFlushed = 0;
@@ -474,9 +469,7 @@ class BatchBuffer {
 
     // Final flush of remaining buffer
     if (this.buffer.length > 0) {
-      if (this.enableLogging) {
-        console.log(`[BatchBuffer] Final flush of ${this.buffer.length} remaining logs...`);
-      }
+      this.logger.info('Final flush of remaining logs', { count: this.buffer.length });
 
       try {
         // Call repository's save method directly
@@ -485,9 +478,7 @@ class BatchBuffer {
         totalFlushed += this.buffer.length;
         this.buffer = [];
 
-        if (this.enableLogging) {
-          console.log('[BatchBuffer] Final flush complete');
-        }
+        this.logger.info('Final flush complete');
       } catch (error) {
         // Queue failed batch for retry using the configured strategy
         await this.retryStrategy.queueForRetry(this.buffer, error, {
@@ -500,22 +491,18 @@ class BatchBuffer {
         });
         totalFailed += this.buffer.length;
 
-        if (this.enableLogging) {
-          console.error('[BatchBuffer] Final flush failed, queued for retry:', error.message);
-        }
+        this.logger.error('Final flush failed, queued for retry', { error: error.message });
       }
     }
 
     // Shutdown the retry strategy
     await this.retryStrategy.shutdown();
 
-    if (this.enableLogging) {
-      console.log('[BatchBuffer] Shutdown complete:', {
-        flushed: totalFlushed,
-        failed: totalFailed,
-        finalMetrics: this.metrics
-      });
-    }
+    this.logger.info('Shutdown complete', {
+      flushed: totalFlushed,
+      failed: totalFailed,
+      finalMetrics: this.metrics
+    });
 
     return {
       flushed: totalFlushed,
@@ -538,13 +525,13 @@ class BatchBuffer {
  * @example
  * ```javascript
  * // Force immediate flush before system maintenance
- * console.log('Forcing buffer flush before maintenance...');
+ * logger.info('Forcing buffer flush before maintenance...');
  * const result = await buffer.forceFlush();
- * console.log(`Flushed ${result.flushed} logs immediately`);
+ * logger.info(`Flushed ${result.flushed} logs immediately`);
  * ```
    */
   async forceFlush() {
-    console.log('[BatchBuffer] Force flush requested');
+    this.logger.info('Force flush requested');
     return await this.flush();
   }
 
@@ -568,7 +555,7 @@ class BatchBuffer {
    * const health = buffer.getHealth();
    *
    * if (!health.healthy) {
-   *   console.warn('Buffer health degraded:', {
+   *   logger.warn('Buffer health degraded:', {
    *     errorRate: health.errorRate,
    *     bufferUsage: health.bufferUsage
    *   });
@@ -616,7 +603,7 @@ class BatchBuffer {
  * @property {RetryStrategy} retryStrategy - Strategy for handling failed operations
  * @property {number} maxBatchSize - Maximum logs per batch before auto-flush (1-1000000)
  * @property {number} maxWaitTime - Maximum time in ms to wait before auto-flush (100-30000)
- * @property {boolean} enableLogging - Whether console logging is enabled
+ * @property {boolean} enableLogging - Whether logger logging is enabled
  * @property {Array} buffer - Internal array holding buffered log entries
  * @property {Timeout|null} flushTimer - Timer for automatic time-based flushing
  * @property {boolean} isFlushing - Flag indicating if a flush operation is in progress

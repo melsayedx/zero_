@@ -34,7 +34,7 @@ class RedisIdempotencyStore extends IdempotencyContract {
      * @param {Object} [options={}] - Configuration options
      * @param {number} [options.ttl=86400] - Default TTL in seconds (24 hours)
      * @param {string} [options.prefix='idempotency'] - Redis key prefix
-     * @param {boolean} [options.enableLogging=false] - Enable debug logging
+     * @param {Logger} [options.logger] - Logger instance
      */
     constructor(redisClient, options = {}) {
         super();
@@ -46,7 +46,7 @@ class RedisIdempotencyStore extends IdempotencyContract {
         this.redis = redisClient;
         this.ttl = options.ttl || 86400; // 24 hours default
         this.prefix = options.prefix || 'idempotency';
-        this.enableLogging = options.enableLogging || false;
+        this.logger = options.logger;
     }
 
     /**
@@ -81,13 +81,15 @@ class RedisIdempotencyStore extends IdempotencyContract {
 
             const response = JSON.parse(cached);
 
-            if (this.enableLogging) {
-                console.log(`[IdempotencyStore] Cache HIT for key: ${key}`);
+            if (this.logger) {
+                this.logger.debug('Cache HIT', { key });
             }
 
             return response;
         } catch (error) {
-            console.error('[IdempotencyStore] Error getting cached response:', error.message);
+            if (this.logger) {
+                this.logger.error('Error getting cached response', { error: error.message });
+            }
             return null; // Fail open - allow request to proceed
         }
     }
@@ -121,13 +123,15 @@ class RedisIdempotencyStore extends IdempotencyContract {
 
             const wasSet = result === 'OK';
 
-            if (this.enableLogging) {
-                console.log(`[IdempotencyStore] Cache ${wasSet ? 'SET' : 'EXISTS'} for key: ${key}`);
+            if (this.logger) {
+                this.logger.debug(wasSet ? 'Cache SET' : 'Cache EXISTS', { key });
             }
 
             return wasSet;
         } catch (error) {
-            console.error('[IdempotencyStore] Error setting cached response:', error.message);
+            if (this.logger) {
+                this.logger.error('Error setting cached response', { error: error.message });
+            }
             return false; // Fail open - don't prevent request processing
         }
     }
@@ -147,13 +151,15 @@ class RedisIdempotencyStore extends IdempotencyContract {
             const redisKey = this._buildKey(key);
             const deleted = await this.redis.del(redisKey);
 
-            if (this.enableLogging) {
-                console.log(`[IdempotencyStore] Cache DELETE for key: ${key}, removed: ${deleted}`);
+            if (this.logger) {
+                this.logger.debug('Cache DELETE', { key, removed: deleted });
             }
 
             return deleted > 0;
         } catch (error) {
-            console.error('[IdempotencyStore] Error deleting key:', error.message);
+            if (this.logger) {
+                this.logger.error('Error deleting key', { error: error.message });
+            }
             return false;
         }
     }

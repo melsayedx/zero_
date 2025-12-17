@@ -76,7 +76,12 @@ class LogProcessorWorker {
     this.consumerName = options.consumerName || `worker-${process.pid}`;
     this.batchSize = options.batchSize || 2000;
     this.pollInterval = options.pollInterval || 5;
-    this.enableLogging = options.enableLogging !== false;
+
+    // Logger must be injected from DI container
+    if (!options.logger) {
+      throw new Error('Logger is required - must be injected from DI container');
+    }
+    this.logger = options.logger;
 
     // Buffer configuration
     this.maxBatchSize = options.maxBatchSize || 100000;
@@ -103,9 +108,7 @@ class LogProcessorWorker {
       return;
     }
 
-    if (this.enableLogging) {
-      console.log('[LogProcessorWorker] Starting crash-proof worker...');
-    }
+    this.logger.info('Starting crash-proof worker...');
 
     // Initialize Redis Stream Queue
     this.streamQueue = new RedisStreamQueue(this.redis, {
@@ -113,7 +116,7 @@ class LogProcessorWorker {
       groupName: this.groupName,
       consumerName: this.consumerName,
       batchSize: this.batchSize,
-      enableLogging: this.enableLogging
+      logger: this.logger
     });
 
     await this.streamQueue.initialize();
@@ -122,7 +125,7 @@ class LogProcessorWorker {
     this.batchBuffer = new BatchBuffer(this.repository, this.retryStrategy, {
       maxBatchSize: this.maxBatchSize,
       maxWaitTime: this.maxWaitTime,
-      enableLogging: this.enableLogging,
+      logger: this.logger,
       onFlushSuccess: async (flushedLogs) => {
         // ACK the Redis messages after successful DB persistence
         await this._acknowledgeMessages(flushedLogs);
@@ -131,14 +134,12 @@ class LogProcessorWorker {
 
     this.isRunning = true;
 
-    if (this.enableLogging) {
-      console.log('[LogProcessorWorker] Worker started:', {
-        streamKey: this.streamKey,
-        groupName: this.groupName,
-        consumerName: this.consumerName,
-        batchSize: this.batchSize
-      });
-    }
+    this.logger.info('Worker started', {
+      streamKey: this.streamKey,
+      groupName: this.groupName,
+      consumerName: this.consumerName,
+      batchSize: this.batchSize
+    });
 
     // Start the processing loop
     this.processLoop();
@@ -153,9 +154,7 @@ class LogProcessorWorker {
    * @returns {Promise<void>} Resolves after shutdown is complete
    */
   async stop() {
-    if (this.enableLogging) {
-      console.log('[LogProcessorWorker] Stopping worker...');
-    }
+    this.logger.info('Stopping worker...');
 
     this.isRunning = false;
 
@@ -174,9 +173,7 @@ class LogProcessorWorker {
       await this.streamQueue.shutdown();
     }
 
-    if (this.enableLogging) {
-      console.log('[LogProcessorWorker] Worker stopped');
-    }
+    this.logger.info('Worker stopped');
   }
 
   /**
@@ -199,7 +196,7 @@ class LogProcessorWorker {
           await new Promise(resolve => setTimeout(resolve, this.pollInterval));
         }
       } catch (error) {
-        console.error('[LogProcessorWorker] Error in process loop:', error);
+        this.logger.error('Error in process loop', { error });
         // Exponential backoff on errors
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
@@ -242,7 +239,7 @@ class LogProcessorWorker {
           entry._redisId = msg.id;
           return entry;
         } catch (error) {
-          console.error('[LogProcessorWorker] Failed to parse log entry:', error.message);
+          this.logger.error('Failed to parse log entry', { error: error.message });
           // ACK invalid messages to remove them from stream
           this.streamQueue.ack([msg.id]).catch(() => { });
           return null;
@@ -253,13 +250,11 @@ class LogProcessorWorker {
       if (logEntries.length > 0) {
         await this.batchBuffer.add(logEntries);
 
-        if (this.enableLogging) {
-          console.log(`[LogProcessorWorker] Buffered ${logEntries.length} logs (stream batch: ${this.batchSize})`);
-        }
+        this.logger.debug('Buffered logs', { count: logEntries.length, streamBatch: this.batchSize });
       }
 
     } catch (error) {
-      console.error('[LogProcessorWorker] Batch processing error:', error);
+      this.logger.error('Batch processing error', { error });
     } finally {
       this.isProcessing = false;
     }
@@ -288,13 +283,11 @@ class LogProcessorWorker {
     try {
       await this.streamQueue.ack(idsToAck);
 
-      if (this.enableLogging) {
-        console.log(`[LogProcessorWorker] Acknowledged ${idsToAck.length} messages to Redis`);
-      }
+      this.logger.debug('Acknowledged messages to Redis', { count: idsToAck.length });
     } catch (error) {
       // Log error but don't throw - data is already in DB
       // Messages will be re-processed on restart (idempotent)
-      console.error('[LogProcessorWorker] Failed to ACK messages:', error.message);
+      this.logger.error('Failed to ACK messages', { error: error.message });
     }
   }
 

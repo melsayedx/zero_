@@ -18,7 +18,14 @@ const SyncValidationStrategy = require('./sync-validation.strategy');
 class WorkerValidationStrategy extends ValidationStrategyContract {
   constructor(options = {}) {
     super();
-    this.workerPool = new WorkerPool(options.workerPool);
+    this.logger = options.logger;
+    // Pass logger to WorkerPool if available
+    const workerPoolOptions = options.workerPool || {};
+    if (this.logger) {
+      workerPoolOptions.logger = this.logger;
+    }
+    this.workerPool = new WorkerPool(workerPoolOptions);
+
     // Use injected sync strategy or create default - Composite Pattern
     this.defaultStrategy = options.defaultStrategy || new SyncValidationStrategy();
 
@@ -31,8 +38,10 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
     this.enableWorkerValidation = options.enableWorkerValidation !== false;
     this.forceWorkerValidation = options.forceWorkerValidation || false;
 
-    console.log('[WorkerValidationStrategy] Initialized with worker thread support');
-    console.log(`[WorkerValidationStrategy] Thresholds: small=${this.smallBatchThreshold}, medium=${this.mediumBatchThreshold}, large=${this.largeBatchThreshold}`);
+    if (this.logger) {
+      this.logger.info('WorkerValidationStrategy initialized with worker thread support');
+      this.logger.debug('Validation thresholds', { small: this.smallBatchThreshold, medium: this.mediumBatchThreshold, large: this.largeBatchThreshold });
+    }
   }
 
   /**
@@ -107,7 +116,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       };
     } catch (error) {
       // Fallback to sync validation if worker fails
-      console.warn('[WorkerValidationStrategy] Worker validation failed, falling back to sync:', error.message);
+      if (this.logger) {
+        this.logger.warn('Worker validation failed, falling back to sync', { error: error.message });
+      }
       return await this.validateBatchSync(logsDataArray);
     }
   }
@@ -161,7 +172,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
         chunks: chunks.length
       };
     } catch (error) {
-      console.warn('[WorkerValidationStrategy] Parallel validation failed, falling back to sync:', error.message);
+      if (this.logger) {
+        this.logger.warn('Parallel validation failed, falling back to sync', { error: error.message });
+      }
       return await this.validateBatchSync(logsDataArray);
     }
   }
@@ -187,7 +200,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       return await this.workerPool.execute('parse_json', { jsonString });
     } catch (error) {
       // Fallback to main thread
-      console.warn('[WorkerValidationStrategy] Worker JSON parsing failed, falling back to sync');
+      if (this.logger) {
+        this.logger.warn('Worker JSON parsing failed, falling back to sync');
+      }
       return JSON.parse(jsonString);
     }
   }
@@ -212,7 +227,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       return result;
     } catch (error) {
       // Fallback to main thread
-      console.warn('[WorkerValidationStrategy] Worker protobuf decoding failed, falling back to sync:', error.message);
+      if (this.logger) {
+        this.logger.warn('Worker protobuf decoding failed, falling back to sync', { error: error.message });
+      }
       return null; // Signal to use main thread
     }
   }
@@ -238,7 +255,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       return await this.workerPool.execute('transform_data', { rows });
     } catch (error) {
       // Fallback to main thread
-      console.warn('[WorkerValidationStrategy] Worker data transformation failed, falling back to sync');
+      if (this.logger) {
+        this.logger.warn('Worker data transformation failed, falling back to sync');
+      }
       return rows.map(row => ({
         ...row,
         metadata: row.metadata ? JSON.parse(row.metadata) : {},
@@ -286,9 +305,13 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
    * Graceful shutdown
    */
   async shutdown() {
-    console.log('[WorkerValidationStrategy] Shutting down...');
+    if (this.logger) {
+      this.logger.info('WorkerValidationStrategy shutting down...');
+    }
     await this.workerPool.shutdown();
-    console.log('[WorkerValidationStrategy] Shutdown complete');
+    if (this.logger) {
+      this.logger.info('WorkerValidationStrategy shutdown complete');
+    }
   }
 }
 

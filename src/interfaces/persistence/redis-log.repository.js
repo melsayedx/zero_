@@ -4,7 +4,7 @@ const LogRepositoryContract = require('../../domain/contracts/log-repository.con
  * RedisLogRepository - High-throughput log ingestion implementation using Redis as a queue.
  *
  * This repository implements the LogRepositoryPort interface to provide "fire-and-forget"
- * log ingestion capabilities. Logs are pushed to a Redis list (queue) for later processing
+ * log ingestion capabilities. Logs are pushed to a Redis Stream for later processing
  * by background workers, enabling extremely high ingestion throughput.
  *
  * @example
@@ -19,13 +19,13 @@ class RedisLogRepository extends LogRepositoryContract {
    *
    * @param {Redis} client - Configured Redis client instance (ioredis or compatible)
    * @param {Object} [options={}] - Configuration options for the repository
-   * @param {string} [options.queueKey='logs:ingestion:queue'] - Redis key for the ingestion queue
+   * @param {string} [options.queueKey='logs:stream'] - Redis key for the ingestion stream
    * @throws {Error} If client is not provided or invalid
    *
    * @example
    * ```javascript
    * const repository = new RedisLogRepository(redisClient, {
-   *   queueKey: 'logs:ingestion:queue'
+   *   queueKey: 'logs:stream'
    * });
    * ```
    */
@@ -37,19 +37,20 @@ class RedisLogRepository extends LogRepositoryContract {
     }
 
     this.client = client;
-    this.queueKey = options.queueKey || 'logs:ingestion:queue';
+    // Reliable stream for crash-proof processing (matches LogProcessorWorker)
+    this.streamKey = options.streamKey || options.queueKey || 'logs:stream';
+    this.logger = options.logger;
   }
 
   /**
-   * Save multiple log entries to the Redis ingestion queue with atomic batch operation.
+   * Save multiple log entries to Redis Stream with atomic batch operation.
    *
-   * This method implements high-throughput "fire-and-forget" ingestion by pushing log entries
-   * to a Redis list. The operation is atomic - either all logs in the batch are queued or
-   * none are.
+   * Uses pipelined XADD for high-throughput, reliable ingestion.
+   * Workers read from this stream using XREADGROUP (crash-proof).
    *
    * @param {LogEntry[]} logEntries - Array of validated log entries to queue
-   * @returns {Promise<void>} Resolves immediately after successful queueing
-   * @throws {Error} If Redis operation fails or connection is lost
+   * @returns {Promise<void>} Resolves when all entries are added to the stream
+   * @throws {Error} If the stream operation fails
    *
    * @example
    * ```javascript
@@ -62,14 +63,26 @@ class RedisLogRepository extends LogRepositoryContract {
       return;
     }
 
-    // Serialize entries directly - Redis is just a queue
-    // LogProcessorWorker re-normalizes when reading from Redis
-    const serializedLogs = logEntries.map(entry => JSON.stringify(entry));
-
     try {
-      await this.client.rpush(this.queueKey, serializedLogs);
+      // Serialize and pipeline XADD operations
+      // Pipelining reduces network RTT overhead significantly
+      const pipeline = this.client.pipeline();
+      if (this.logger) {
+        this.logger.debug('Saving log entries to Redis stream', { count: logEntries.length });
+      }
+      for (let i = 0; i < logEntries.length; i++) {
+        // XADD streamKey * data <json>
+        pipeline.xadd(this.streamKey, '*', 'data', JSON.stringify(logEntries[i]));
+      }
+
+      await pipeline.exec();
     } catch (error) {
-      console.error('[RedisLogRepository] Failed to queue logs:', error);
+      if (this.logger) {
+        this.logger.error('Failed to add logs to stream', { error: error.message });
+      } else {
+        // Fallback for critical error
+        console.error('[RedisLogRepository] Failed to add logs to stream:', error);
+      }
       throw new Error('Failed to queue logs for processing');
     }
   }
@@ -112,26 +125,26 @@ class RedisLogRepository extends LogRepositoryContract {
   }
 
   /**
-   * Get operational statistics for the Redis ingestion queue.
+   * Get operational statistics for the Redis ingestion stream.
    *
    * This method provides key metrics for monitoring the ingestion pipeline's health
    * and performance.
    *
-   * @returns {Promise<Object>} Queue statistics and operational metrics
-   * @returns {number} result.queueLength - Current number of queued log entries
-   * @returns {string} result.queueKey - Redis key used for the ingestion queue
+   * @returns {Promise<Object>} Stream statistics and operational metrics
+   * @returns {number} result.streamLength - Current number of entries in stream
+   * @returns {string} result.streamKey - Redis key used for the ingestion stream
    *
    * @example
    * ```javascript
    * const stats = await repository.getStats();
-   * console.log(`Pending logs: ${stats.queueLength}`);
+   * console.log(`Stream entries: ${stats.streamLength}`);
    * ```
    */
   async getStats() {
-    const length = await this.client.llen(this.queueKey);
+    const length = await this.client.xlen(this.streamKey);
     return {
-      queueLength: length,
-      queueKey: this.queueKey
+      streamLength: length,
+      streamKey: this.streamKey
     };
   }
 
@@ -152,4 +165,3 @@ class RedisLogRepository extends LogRepositoryContract {
 }
 
 module.exports = RedisLogRepository;
-

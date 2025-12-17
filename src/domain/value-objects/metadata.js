@@ -17,17 +17,17 @@
  * const metadata = new Metadata({ userId: 123, action: 'login' });
  *
  * // Access original object (immutable)
- * console.log(metadata.value); // { userId: 123, action: 'login' }
+ * logger.info(metadata.value); // { userId: 123, action: 'login' }
  *
  * // Get JSON string (lazy, cached)
- * console.log(metadata.string); // '{"userId":123,"action":"login"}'
+ * logger.info(metadata.string); // '{"userId":123,"action":"login"}'
  *
  * // Check size
- * console.log(metadata.getSize()); // Size in bytes
+ * logger.info(metadata.getSize()); // Size in bytes
  *
  * // Equality comparison
  * const other = new Metadata({ userId: 123, action: 'login' });
- * console.log(metadata.equals(other)); // true
+ * logger.info(metadata.equals(other)); // true
  * ```
  */
 class Metadata {
@@ -147,8 +147,8 @@ class Metadata {
    * const original = { userId: 123, action: 'login' };
    * const meta = new Metadata(original);
    *
-   * console.log(meta.value); // { userId: 123, action: 'login' }
-   * console.log(Object.isFrozen(meta.value)); // true
+   * logger.info(meta.value); // { userId: 123, action: 'login' }
+   * logger.info(Object.isFrozen(meta.value)); // true
    * ```
    */
   get value() {
@@ -184,7 +184,7 @@ class Metadata {
    * @example
    * ```javascript
    * const meta = new Metadata({ message: 'hello' });
-   * console.log(meta.getSize()); // Size in bytes (e.g., 18)
+   * logger.info(meta.getSize()); // Size in bytes (e.g., 18)
    * ```
    */
   getSize() {
@@ -207,7 +207,7 @@ class Metadata {
    * @example
    * ```javascript
    * const meta = new Metadata({ key: 'value' });
-   * console.log(`Metadata: ${meta}`); // Implicit toString() call
+   * logger.info(`Metadata: ${meta}`); // Implicit toString() call
    * ```
    */
   toString() {

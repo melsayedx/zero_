@@ -34,7 +34,9 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
 
     this.maxRetries = options.maxRetries || 3;
     this.retryDelay = options.retryDelay || 1000;
-    this.enableLogging = options.enableLogging !== false;
+    this.maxRetries = options.maxRetries || 3;
+    this.retryDelay = options.retryDelay || 1000;
+    this.logger = options.logger;
 
     // In-memory storage
     this.retryQueue = [];
@@ -49,8 +51,8 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
       retries: 0
     };
 
-    if (this.enableLogging) {
-      console.log('[InMemoryRetryStrategy] Initialized for development/testing');
+    if (this.logger) {
+      this.logger.info('InMemoryRetryStrategy initialized for development/testing');
     }
   }
 
@@ -84,8 +86,8 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
     // Schedule immediate processing (or with delay)
     this._scheduleProcessing(retryItem);
 
-    if (this.enableLogging) {
-      console.warn('[InMemoryRetryStrategy] Queued failed items for retry:', {
+    if (this.logger) {
+      this.logger.warn('Queued failed items for retry', {
         itemCount: items.length,
         error: error.message,
         queueLength: this.retryQueue.length
@@ -113,7 +115,7 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
 
         const delay = this.retryDelay * Math.pow(2, item.metadata.attempt);
         const scheduledTime = new Date(item.metadata.queuedAt).getTime() +
-                             (delay * item.metadata.attempt);
+          (delay * item.metadata.attempt);
 
         return now >= scheduledTime;
       });
@@ -128,8 +130,8 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
         // Check max retries
         if (item.metadata.attempt >= this.maxRetries) {
           this.metrics.failed++;
-          if (this.enableLogging) {
-            console.warn('[InMemoryRetryStrategy] Max retries exceeded, dropping item:', {
+          if (this.logger) {
+            this.logger.warn('Max retries exceeded, dropping item', {
               itemCount: item.items.length,
               finalError: item.error.message
             });
@@ -152,8 +154,8 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
             this._scheduleProcessing(item);
           } else {
             this.metrics.failed++;
-            if (this.enableLogging) {
-              console.warn('[InMemoryRetryStrategy] Item failed permanently after retries');
+            if (this.logger) {
+              this.logger.warn('Item failed permanently after retries');
             }
           }
 
@@ -189,7 +191,7 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
    */
   _scheduleProcessing(item) {
     const delay = item.metadata.attempt === 0 ? 0 :
-                  this.retryDelay * Math.pow(2, item.metadata.attempt);
+      this.retryDelay * Math.pow(2, item.metadata.attempt);
 
     const timeout = setTimeout(async () => {
       this.timeouts.delete(item.metadata.id);
@@ -225,8 +227,8 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
     this.timeouts.clear();
     this.retryQueue.length = 0;
 
-    if (this.enableLogging) {
-      console.log('[InMemoryRetryStrategy] Shutdown complete - all data cleared');
+    if (this.logger) {
+      this.logger.info('InMemoryRetryStrategy shutdown complete - all data cleared');
     }
   }
 }

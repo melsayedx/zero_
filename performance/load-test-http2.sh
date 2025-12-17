@@ -1,8 +1,8 @@
 #!/bin/bash
 
 ###############################################################################
-# Performance Testing Script using oha
-# High-performance HTTP load testing for the log ingestion platform
+# Performance Testing Script using oha (HTTP/2)
+# High-performance HTTP/2 load testing for the log ingestion platform
 ###############################################################################
 
 set -e
@@ -16,8 +16,9 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-BASE_URL="${SERVER_URL:-http://localhost:3000}"
-RESULTS_DIR="./performance-results"
+# Default to port 3001 (standard HTTP/2 secure port from setup-certs.sh)
+BASE_URL="${SERVER_URL:-https://localhost:3000}"
+RESULTS_DIR="./measurements"
 
 # Test Configuration
 WARMUP_REQUESTS=100
@@ -45,7 +46,7 @@ print_section() {
 
 check_oha() {
     if ! command -v oha &> /dev/null; then
-        echo -e "${RED}❌ oha is not installed!${NC}"
+        echo -e "${RED}oha is not installed!${NC}"
         echo ""
         echo "Install oha:"
         echo "  macOS:   brew install oha"
@@ -54,19 +55,21 @@ check_oha() {
         exit 1
     fi
     
-    echo -e "${GREEN}✅ oha is installed ($(oha --version))${NC}"
+    echo -e "${GREEN}oha is installed ($(oha --version))${NC}"
 }
 
 check_server() {
-    print_section "Checking if server is running..."
+    print_section "Checking if server is running (HTTP/2)..."
     
-    if curl -s -f "${BASE_URL}/health" > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ Server is running at ${BASE_URL}${NC}"
+    # Using curl with --http2 and -k (insecure)
+    if curl -s -k --http2 -f "${BASE_URL}/health" > /dev/null 2>&1; then
+        echo -e "${GREEN}Server is running at ${BASE_URL} (HTTP/2)${NC}"
         return 0
     else
-        echo -e "${RED}❌ Server is not running at ${BASE_URL}${NC}"
+        echo -e "${RED}Server is not running at ${BASE_URL}${NC}"
         echo ""
         echo "Start the server with: npm start"
+        echo "Make sure certificates are generated: ../setup-certs.sh"
         exit 1
     fi
 }
@@ -75,7 +78,7 @@ create_results_dir() {
     mkdir -p "${RESULTS_DIR}"
     TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
     RESULTS_FILE="${RESULTS_DIR}/test_${TIMESTAMP}.txt"
-    echo -e "${CYAN}📊 Results will be saved to: ${RESULTS_FILE}${NC}"
+    echo -e "${CYAN}Results will be saved to: ${RESULTS_FILE}${NC}"
     echo ""
 }
 
@@ -84,29 +87,30 @@ create_results_dir() {
 ###############################################################################
 
 test_health_check() {
-    print_header "Test 1: Health Check Endpoint"
+    print_header "Test 1: Health Check Endpoint (HTTP/2)"
     
     echo "Testing health check with high concurrency..."
     echo ""
     
     oha -z 10s \
         -c 100 \
+        --http2 \
+        --insecure \
         --latency-correction \
-        --disable-keepalive \
         "${BASE_URL}/health" | tee -a "${RESULTS_FILE}"
 }
 
 test_single_log_light() {
-    print_header "Test 2: Single Log Ingestion - Light Load"
+    print_header "Test 2: Single Log Ingestion - Light Load (HTTP/2)"
     
     local payload='{
   "app_id": "test-app",
   "level": "INFO",
-  "message": "Performance test - single log ingestion",
-  "source": "oha-test",
+  "message": "Performance test - single log ingestion (HTTP/2)",
+  "source": "oha-test-h2",
   "environment": "test",
   "metadata": {
-    "test_type": "single_log",
+    "test_type": "single_log_h2",
     "load": "light"
   }
 }'
@@ -117,6 +121,8 @@ test_single_log_light() {
     
     oha -n ${LIGHT_LOAD} \
         -c 50 \
+        --http2 \
+        --insecure \
         -m POST \
         -H "Content-Type: application/json" \
         -d "$payload" \
@@ -125,7 +131,7 @@ test_single_log_light() {
 }
 
 test_single_log_medium() {
-    print_header "Test 3: Single Log Ingestion - Medium Load"
+    print_header "Test 3: Single Log Ingestion - Medium Load (HTTP/2)"
     
     local payload='{
   "app_id": "api-gateway",
@@ -137,7 +143,8 @@ test_single_log_medium() {
     "user_id": "usr_1234567890",
     "ip_address": "192.168.1.100",
     "session_id": "sess_abcdefghij",
-    "duration_ms": 145
+    "duration_ms": 145,
+    "protocol": "HTTP/2"
   }
 }'
 
@@ -147,6 +154,8 @@ test_single_log_medium() {
     
     oha -n ${MEDIUM_LOAD} \
         -c 100 \
+        --http2 \
+        --insecure \
         -m POST \
         -H "Content-Type: application/json" \
         -d "$payload" \
@@ -155,7 +164,7 @@ test_single_log_medium() {
 }
 
 test_single_log_heavy() {
-    print_header "Test 4: Single Log Ingestion - Heavy Load"
+    print_header "Test 4: Single Log Ingestion - Heavy Load (HTTP/2)"
     
     local payload='{
   "app_id": "payment-service",
@@ -172,7 +181,8 @@ test_single_log_heavy() {
     "payment_method": "credit_card",
     "error_code": "INSUFFICIENT_FUNDS",
     "retry_count": 3,
-    "processing_time_ms": 1250
+    "processing_time_ms": 1250,
+    "protocol": "HTTP/2"
   }
 }'
 
@@ -182,6 +192,8 @@ test_single_log_heavy() {
     
     oha -n ${HEAVY_LOAD} \
         -c 200 \
+        --http2 \
+        --insecure \
         -m POST \
         -H "Content-Type: application/json" \
         -d "$payload" \
@@ -190,7 +202,7 @@ test_single_log_heavy() {
 }
 
 test_duration_based() {
-    print_header "Test 5: Duration-Based Test (30 seconds)"
+    print_header "Test 5: Duration-Based Test (30 seconds, HTTP/2)"
     
     local payload='{
   "app_id": "notification-service",
@@ -206,6 +218,8 @@ test_duration_based() {
     
     oha -z 30s \
         -c 100 \
+        --http2 \
+        --insecure \
         -m POST \
         -H "Content-Type: application/json" \
         -d "$payload" \
@@ -214,7 +228,7 @@ test_duration_based() {
 }
 
 test_burst_load() {
-    print_header "Test 6: Burst Load Test"
+    print_header "Test 6: Burst Load Test (HTTP/2)"
     
     local payload='{
   "app_id": "api-gateway",
@@ -230,16 +244,17 @@ test_burst_load() {
     
     oha -n 5000 \
         -c 500 \
+        --http2 \
+        --insecure \
         -m POST \
         -H "Content-Type: application/json" \
         -d "$payload" \
         --latency-correction \
-        --disable-keepalive \
         "${BASE_URL}/api/logs" | tee -a "${RESULTS_FILE}"
 }
 
 test_query_performance() {
-    print_header "Test 7: Log Query/Retrieval Performance"
+    print_header "Test 7: Log Query/Retrieval Performance (HTTP/2)"
     
     echo "Testing: Query logs by app_id"
     echo "Endpoint: GET /api/logs/test-app?limit=100"
@@ -247,12 +262,14 @@ test_query_performance() {
     
     oha -n 1000 \
         -c 50 \
+        --http2 \
+        --insecure \
         --latency-correction \
         "${BASE_URL}/api/logs/test-app?limit=100" | tee -a "${RESULTS_FILE}"
 }
 
 test_large_payload() {
-    print_header "Test 8: Large Payload Test"
+    print_header "Test 8: Large Payload Test (HTTP/2)"
     
     local payload='{
   "app_id": "analytics-service",
@@ -295,8 +312,63 @@ test_large_payload() {
     
     oha -n 5000 \
         -c 100 \
+        --http2 \
+        --insecure \
         -m POST \
         -H "Content-Type: application/json" \
+        -d "$payload" \
+        --latency-correction \
+        "${BASE_URL}/api/logs" | tee -a "${RESULTS_FILE}"
+}
+
+test_idempotency() {
+    print_header "Test 9: Idempotency Test (HTTP/2)"
+    
+    local key="test-idempotency-h2-$(date +%s)"
+    local payload='{
+  "app_id": "idempotency-test",
+  "level": "INFO",
+  "message": "Testing idempotency feature - duplicate request prevention",
+  "source": "run-sh-test",
+  "environment": "test"
+}'
+
+    echo "Testing: Idempotency with duplicate requests"
+    echo "Idempotency-Key: ${key}"
+    echo ""
+    
+    # First request - should be processed
+    echo -e "${YELLOW}First request (should be processed):${NC}"
+    curl -s -k --http2 -X POST "${BASE_URL}/api/logs" \
+        -H "Content-Type: application/json" \
+        -H "Idempotency-Key: ${key}" \
+        -d "$payload" | jq . 2>/dev/null || cat
+    echo ""
+    
+    # Second request with same key - should return cached response
+    echo -e "${YELLOW}Second request (should return cached):${NC}"
+    curl -s -k --http2 -X POST "${BASE_URL}/api/logs" \
+        -H "Content-Type: application/json" \
+        -H "Idempotency-Key: ${key}" \
+        -d '{"app_id":"different","message":"Different payload - should be ignored","source":"test","level":"ERROR"}' | jq . 2>/dev/null || cat
+    echo ""
+    
+    # Verify Redis cache
+    echo -e "${YELLOW}Verifying Redis cache:${NC}"
+    redis-cli get "idempotency:${key}" 2>/dev/null | jq . 2>/dev/null || echo "Redis not available or key not found"
+    echo ""
+    
+    # Performance test with idempotency header
+    echo -e "${YELLOW}Load test with Idempotency-Key headers (unique keys):${NC}"
+    echo ""
+    
+    oha -n 1000 \
+        -c 50 \
+        --http2 \
+        --insecure \
+        -m POST \
+        -H "Content-Type: application/json" \
+        -H "Idempotency-Key: perf-test-{n}" \
         -d "$payload" \
         --latency-correction \
         "${BASE_URL}/api/logs" | tee -a "${RESULTS_FILE}"
@@ -307,7 +379,7 @@ test_large_payload() {
 ###############################################################################
 
 run_all_tests() {
-    print_header "Running ALL Performance Tests"
+    print_header "Running ALL Performance Tests (HTTP/2)"
     
     test_health_check
     sleep 2
@@ -339,7 +411,7 @@ run_all_tests() {
 }
 
 run_quick_tests() {
-    print_header "Running Quick Performance Tests"
+    print_header "Running Quick Performance Tests (HTTP/2)"
     
     test_health_check
     sleep 2
@@ -351,9 +423,9 @@ run_quick_tests() {
 }
 
 run_stress_tests() {
-    print_header "Running STRESS Tests (High Load)"
+    print_header "Running STRESS Tests (High Load - HTTP/2)"
     
-    echo -e "${YELLOW}⚠️  WARNING: This will generate heavy load!${NC}"
+    echo -e "${YELLOW}WARNING: This will generate heavy load!${NC}"
     read -p "Continue? [y/N] " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -373,12 +445,15 @@ run_stress_tests() {
 # Main Menu
 ###############################################################################
 
+
 show_menu() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║      Log Ingestion Platform - Performance Testing        ║${NC}"
-    echo -e "${CYAN}║                  Using oha Load Tester                   ║${NC}"
+    echo -e "${CYAN}║             Using oha (HTTP/2 ENABLED)                   ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "Target Host: ${YELLOW}${BASE_URL}${NC}"
     echo ""
     echo "Select a test suite:"
     echo ""
@@ -390,32 +465,48 @@ show_menu() {
     echo "  6) Burst Load Test (spike simulation)"
     echo "  7) Query/Retrieval Performance"
     echo "  8) Large Payload Test"
+    echo "  9) Idempotency Test (duplicate request prevention)"
     echo ""
-    echo "  9) Quick Test Suite (health + light + query)"
-    echo " 10) All Tests (comprehensive)"
-    echo " 11) Stress Tests (heavy load)"
+    echo " 10) Quick Test Suite (health + light + query)"
+    echo " 11) All Tests (comprehensive)"
+    echo " 12) Stress Tests (heavy load)"
     echo ""
+    echo "  c) Configure Target Host (Currently: ${BASE_URL})"
     echo "  0) Exit"
     echo ""
 }
 
-###############################################################################
-# Main Script
-###############################################################################
-
 main() {
     # Pre-flight checks
     check_oha
-    check_server
     create_results_dir
     
     # Show menu if no arguments
     if [ $# -eq 0 ]; then
-        show_menu
-        read -p "Enter choice [0-11]: " choice
+        while true; do
+            show_menu
+            read -p "Enter choice [0-12, c]: " choice
+            
+            case $choice in
+                c|C)
+                    read -p "Enter target URL (e.g. https://localhost:3001): " new_url
+                    if [[ -n "$new_url" ]]; then
+                        BASE_URL="$new_url"
+                        # Re-verify server
+                        check_server
+                    fi
+                    continue
+                    ;;
+                0) echo "Exiting..."; exit 0 ;;
+                *) break ;;
+            esac
+        done
     else
         choice=$1
     fi
+    
+    # Check server before running tests (unless we just configured it)
+    check_server
     
     case $choice in
         1) test_health_check ;;
@@ -426,9 +517,10 @@ main() {
         6) test_burst_load ;;
         7) test_query_performance ;;
         8) test_large_payload ;;
-        9) run_quick_tests ;;
-        10) run_all_tests ;;
-        11) run_stress_tests ;;
+        9) test_idempotency ;;
+        10) run_quick_tests ;;
+        11) run_all_tests ;;
+        12) run_stress_tests ;;
         0) echo "Exiting..."; exit 0 ;;
         *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
     esac
@@ -444,4 +536,3 @@ main() {
 
 # Run main function
 main "$@"
-
