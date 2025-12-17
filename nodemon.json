@@ -1,0 +1,12 @@
+{
+    "ignore": [
+        "performance-results/*",
+        "clickhouse-logs/*",
+        "*.log",
+        "node_modules/*"
+    ],
+    "watch": [
+        "src"
+    ],
+    "ext": "js,json"
+}

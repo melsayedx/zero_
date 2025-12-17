@@ -16,23 +16,11 @@
 --
 -- Migration Script: Add app_id support to existing logs table
 -- Run this if you already have a logs table without app_id
--- CREATE DATABASE IF NOT EXISTS logs_db;
+CREATE DATABASE IF NOT EXISTS logs_db;
 
--- USE logs_db;
+USE logs_db;    
 
--- Option 1: Add column to existing table (if possible, but ClickHouse may not support ALTER for ORDER BY)
--- This will fail if the table structure is incompatible
--- ALTER TABLE logs ADD COLUMN app_id LowCardinality(String) DEFAULT 'legacy-app';
-
--- Option 2: Recommended - Create new table with app_id and migrate data
--- Step 1: Rename old table
--- RENAME TABLE logs TO logs_old;
-
--- Step 2: Create new table with app_id
--- ============================================
 -- PRODUCTION-OPTIMIZED LOGS TABLE
--- ============================================
-
 CREATE TABLE logs (
     -- Primary ID (UUID)
     id UUID DEFAULT generateUUIDv7() CODEC(ZSTD(19)),
@@ -115,44 +103,3 @@ SETTINGS
     -- Memory settings for merges
     max_bytes_to_merge_at_max_space_in_pool = 1073741824,  -- 1GB max merge memory
     max_bytes_to_merge_at_min_space_in_pool = 134217728;   -- 128MB min merge memory
-
--- Step 3: Migrate data from old table (assign default app_id)
-INSERT INTO logs(
-    app_id,
-    timestamp,
-    level,
-    message,
-    source,
-    environment,
-    metadata,
-    trace_id,
-    user_id
-) 
-SELECT 
-    app_id,
-    timestamp,
-    level,
-    message,
-    source,
-    environment,
-    metadata,
-    trace_id,
-    user_id
-FROM logs_old;
-
--- Step 4: Verify migration
-SELECT 
-    'Old table count' as description, 
-    count() as count 
-FROM logs_old
-UNION ALL
-SELECT 
-    'New table count' as description, 
-    count() as count 
-FROM logs;
-
--- Step 5: Once verified, drop old table (CAREFUL!)
--- DROP TABLE logs_old;
-
-SELECT 'Migration completed! Review the counts above and drop logs_old when ready.' as status;
-

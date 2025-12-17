@@ -88,7 +88,8 @@ class LogIngestionService {
 
     // Configuration
     this.useCoalescing = options.useCoalescing !== false;
-    this.maxBatchSize = options.maxBatchSize || 100; // Maximum requests per batch
+    this.maxBatchSize = options.maxBatchSize || 10000; // Maximum requests per batch
+    this.minBatchSize = options.minBatchSize || 50; // Minimum requests to trigger coalescing
 
     // Metrics
     this.metrics = {
@@ -266,6 +267,7 @@ class LogIngestionService {
     }
 
     try {
+      console.log('Processing batch of', allLogs.length, 'logs');
       // Process through use case with raw logs
       const batchResult = await this.ingestUseCase.execute(allLogs);
       const aggregatedErrors = Array.isArray(batchResult.errors) ? batchResult.errors : [];

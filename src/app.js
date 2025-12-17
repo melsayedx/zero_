@@ -6,6 +6,8 @@ const { setupGrpcServer, shutdownGrpcServer } = require('./interfaces/grpc/serve
 const createContentParserMiddleware = require('./interfaces/middleware/content-parser.middleware');
 const logsOpenApiConfig = require('./infrastructure/openapi/logs-openapi');
 const cluster = require('cluster');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Create application instance
@@ -18,12 +20,37 @@ async function createApp(options = {}) {
   const container = new DIContainer();
   await container.initialize();
 
-  // Create Fastify app
-  const app = fastify({
+  // Determine HTTP/2 configuration
+  const enableHttp2 = process.env.ENABLE_HTTP2 === 'true';
+  const fastifyOptions = {
     logger: false,
     bodyLimit: 10485760, // 10MB limit (same as Express)
     requestIdHeader: 'x-request-id'
-  });
+  };
+
+  if (enableHttp2) {
+    // Load SSL certificates
+    const certPath = process.env.SSL_CERT_PATH || path.join(__dirname, '../certs/server.crt');
+    const keyPath = process.env.SSL_KEY_PATH || path.join(__dirname, '../certs/server.key');
+
+    try {
+      if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+        fastifyOptions.http2 = true;
+        fastifyOptions.https = {
+          allowHTTP1: true, // Fallback support
+          key: fs.readFileSync(keyPath),
+          cert: fs.readFileSync(certPath)
+        };
+      } else {
+        console.warn(`[WARN] HTTP/2 enabled but certificates not found at ${certPath} or ${keyPath}. Falling back to HTTP/1.1.`);
+      }
+    } catch (err) {
+      console.warn(`[WARN] Failed to load SSL certificates: ${err.message}. Falling back to HTTP/1.1.`);
+    }
+  }
+
+  // Create Fastify app
+  const app = fastify(fastifyOptions);
 
   // Register plugins
   await app.register(require('@fastify/helmet'));
@@ -53,12 +80,12 @@ async function createApp(options = {}) {
   await app.register(createContentParserMiddleware(validationService));
 
   // Request logging hook
-  app.addHook('onRequest', (request, reply, done) => {
-    const format = request.contentFormat ? ` [${request.contentFormat}]` : '';
-    const workerInfo = clusterMode ? ` [Worker ${workerId}]` : '';
-    console.log(`${new Date().toISOString()}${workerInfo} - ${request.method} ${request.url}${format}`);
-    done();
-  });
+  // app.addHook('onRequest', (request, reply, done) => {
+  //   const format = request.contentFormat ? ` [${request.contentFormat}]` : '';
+  //   const workerInfo = clusterMode ? ` [Worker ${workerId}]` : '';
+  //   console.log(`${new Date().toISOString()}${workerInfo} - ${request.method} ${request.url}${format}`);
+  //   done();
+  // });
 
   // Setup routes with controllers from DI container
   const controllers = container.getControllers();
@@ -107,7 +134,7 @@ async function createApp(options = {}) {
 ║                  (Fastify Edition)                        ║
 ╚═══════════════════════════════════════════════════════════╝
 
-HTTP Server running on: http://localhost:${HTTP_PORT}
+HTTP Server running on: ${enableHttp2 ? 'https' : 'http'}://localhost:${HTTP_PORT}
 gRPC Server running on: 0.0.0.0:${GRPC_PORT}
 Environment: ${process.env.NODE_ENV || 'development'}
 
@@ -134,6 +161,7 @@ Performance Features:
   ✓ Protocol Buffers (40-60% smaller payloads)
   ✓ HTTP Compression (enabled)
   ✓ Fastify Framework (3x faster than Express)
+  ${enableHttp2 ? '✓ HTTP/2 Support (Multiplexing, HPACK)' : '✓ HTTP/1.1 (HTTP/2 available)'}
 
 ClickHouse: ${process.env.CLICKHOUSE_HOST || 'http://localhost:8123'}
 Database: ${process.env.CLICKHOUSE_DATABASE || 'logs_db'}
@@ -245,33 +273,68 @@ MongoDB: ${process.env.MONGODB_URI || 'mongodb://mongodb:27017/logs_platform'}
   };
 }
 
+const os = require('os');
+const numCPUs = os.cpus().length / 2;
+
 // If running directly (not in cluster mode), start the app
-if (require.main === module && !cluster.isWorker) {
-  (async () => {
-    const appInstance = await createApp();
+if (require.main === module) {
+  // Check if clustering is enabled via environment variable
+  const isClusterEnabled = process.env.ENABLE_CLUSTERING === 'true';
 
-    // Setup signal handlers for standalone mode
-    const shutdown = async (signal) => {
-      console.log(`\n${signal} received. Starting graceful shutdown...`);
+  if (isClusterEnabled && cluster.isPrimary) {
+    console.log(`[Master] Running on ${numCPUs} CPUs`);
+    console.log(`[Master] Primary process ${process.pid} is running`);
+    console.log(`[Master] Forking ${numCPUs} workers for maximum throughput...`);
 
-      await appInstance.shutdown();
-      process.exit(0);
-    };
+    // Fork workers
+    for (let i = 0; i < numCPUs; i++) {
+      cluster.fork();
+    }
 
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
-
-    // Handle uncaught errors
-    process.on('uncaughtException', (error) => {
-      console.error('Uncaught Exception:', error);
-      process.exit(1);
+    // Handle worker exit
+    cluster.on('exit', (worker, code, signal) => {
+      console.log(`[Master] Worker ${worker.process.pid} died. Restarting...`);
+      cluster.fork();
     });
+  } else {
+    // Worker Process (or Single Process if clustering disabled)
+    (async () => {
+      // Determine options based on process type
+      const options = cluster.isWorker
+        ? { clusterMode: true, workerId: cluster.worker.id }
+        : { clusterMode: false };
 
-    process.on('unhandledRejection', (reason, promise) => {
-      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-      process.exit(1);
-    });
-  })();
+      const appInstance = await createApp(options);
+
+      // Setup signal handlers
+      const shutdown = async (signal) => {
+        const role = cluster.isWorker ? `Worker ${cluster.worker.id}` : 'App';
+        console.log(`\n[${role}] ${signal} received. Starting graceful shutdown...`);
+
+        await appInstance.shutdown();
+
+        if (cluster.isWorker) {
+          process.exit(0);
+        } else {
+          process.exit(0);
+        }
+      };
+
+      process.on('SIGTERM', () => shutdown('SIGTERM'));
+      process.on('SIGINT', () => shutdown('SIGINT'));
+
+      // Handle uncaught errors
+      process.on('uncaughtException', (error) => {
+        console.error('Uncaught Exception:', error);
+        process.exit(1);
+      });
+
+      process.on('unhandledRejection', (reason, promise) => {
+        console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+        process.exit(1);
+      });
+    })();
+  }
 }
 
 module.exports = createApp;
