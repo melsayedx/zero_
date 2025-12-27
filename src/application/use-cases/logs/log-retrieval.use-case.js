@@ -1,10 +1,8 @@
-const QueryResult = require('./query-result');
-
-// TODO: Better naming for the use-case
+// TODO: Better naming for the use-case - DONE
 
 /**
- * GetLogsByAppId Use Case
- * Core business logic for retrieving logs by application ID with performance optimization
+ * LogRetrieval Use Case
+ * Core business logic for retrieving logs with performance optimization
  *
  * Architecture:
  * - Depends on: LogRepositoryContract (domain contract) - what this use case needs
@@ -12,7 +10,7 @@ const QueryResult = require('./query-result');
  *
  * This follows the Dependency Inversion Principle and Onion Architecture
  */
-class GetLogsByAppIdUseCase {
+class LogRetrievalUseCase {
   constructor(logRepository) {
     if (!logRepository) {
       throw new Error('LogRepository is required');
@@ -27,7 +25,7 @@ class GetLogsByAppIdUseCase {
   }
 
   /**
-   * Execute the use case to retrieve logs by application ID
+   * Execute the use case to retrieve logs
    * @param {string} appId - Application ID to filter by
    * @param {number} limit - Maximum number of logs to return (default: 1000)
    * @returns {Promise<QueryResult>} Structured result with query data and performance metrics
@@ -110,5 +108,5 @@ class GetLogsByAppIdUseCase {
   }
 }
 
-module.exports = GetLogsByAppIdUseCase;
+module.exports = LogRetrievalUseCase;
 

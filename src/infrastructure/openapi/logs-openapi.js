@@ -204,6 +204,81 @@ const logsOpenApiConfig = {
               example: 'Invalid app_id format'
             }
           }
+        },
+        SemanticSearchRequest: {
+          type: 'object',
+          required: ['query'],
+          properties: {
+            query: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 1000,
+              description: 'Natural language search query',
+              example: 'error logs related to database connection timeout'
+            },
+            app_id: {
+              type: 'string',
+              maxLength: 100,
+              description: 'Filter by application ID',
+              example: 'payment-service'
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 20,
+              description: 'Maximum number of results to return'
+            },
+            level: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
+              },
+              description: 'Filter by log levels'
+            },
+            time_range: {
+              type: 'object',
+              properties: {
+                start: { type: 'string', format: 'date-time' },
+                end: { type: 'string', format: 'date-time' }
+              },
+              description: 'Time range for the search'
+            }
+          }
+        },
+        SemanticSearchResponse: {
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean',
+              example: true
+            },
+            message: {
+              type: 'string',
+              example: 'Found 15 similar logs'
+            },
+            data: {
+              type: 'object',
+              properties: {
+                query: {
+                  type: 'string',
+                  description: 'The processed search query'
+                },
+                logs: {
+                  type: 'array',
+                  items: {
+                    $ref: '#/components/schemas/LogEntry'
+                  },
+                  description: 'List of logs matching the semantic query'
+                },
+                metadata: {
+                  type: 'object',
+                  description: 'Search metadata (execution time, model used, etc.)'
+                }
+              }
+            }
+          }
         }
       },
       securitySchemes: {

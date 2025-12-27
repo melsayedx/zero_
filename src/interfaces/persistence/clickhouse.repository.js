@@ -226,6 +226,102 @@ class ClickHouseRepository extends LogRepositoryContract {
     return { logs, nextCursor, hasMore, queryTime };
   }
 
+  /**
+   * Find logs similar to a query embedding using vector similarity search.
+   * 
+   * Performs semantic search using cosineDistance on the log_embeddings table,
+   * then joins with the logs table to return full log entries. Supports
+   * hybrid filtering with metadata constraints.
+   * 
+   * @param {number[]} queryEmbedding - Query embedding vector (384 dimensions)
+   * @param {Object} [options={}] - Search options
+   * @param {string} [options.appId] - Filter by app_id
+   * @param {number} [options.limit=20] - Maximum results to return
+   * @param {string[]} [options.level] - Filter by log levels
+   * @param {Object} [options.timeRange] - Filter by time range { start, end }
+   * @returns {Promise<Array>} Array of similar logs with similarity scores
+   * 
+   * @example
+   * ```javascript
+   * const results = await repo.findSimilar(queryEmbedding, {
+   *   appId: 'my-app',
+   *   limit: 20,
+   *   level: ['ERROR', 'WARN'],
+   *   timeRange: { start: '2024-01-01', end: '2024-01-31' }
+   * });
+   * ```
+   */
+  async findSimilar(queryEmbedding, options = {}) {
+    const { appId, limit = 20, level, timeRange } = options;
+
+    if (!Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+      throw new Error('Query embedding is required');
+    }
+
+    // Build embedding array string for ClickHouse
+    const embeddingStr = `[${queryEmbedding.join(',')}]`;
+
+    // Build WHERE conditions for filtering
+    const conditions = [];
+
+    if (appId) {
+      conditions.push(`e.app_id = '${this.escapeString(appId)}'`);
+    }
+
+    if (level && Array.isArray(level) && level.length > 0) {
+      const levels = level.map(l => `'${this.escapeString(l)}'`).join(',');
+      conditions.push(`l.level IN (${levels})`);
+    }
+
+    if (timeRange) {
+      if (timeRange.start) {
+        conditions.push(`e.timestamp >= '${this.escapeString(timeRange.start)}'`);
+      }
+      if (timeRange.end) {
+        conditions.push(`e.timestamp <= '${this.escapeString(timeRange.end)}'`);
+      }
+    }
+
+    const whereClause = conditions.length > 0
+      ? `WHERE ${conditions.join(' AND ')}`
+      : '';
+
+    // Query using cosineDistance with JOIN to get full log data
+    const query = `
+      SELECT 
+        l.id,
+        l.app_id,
+        l.timestamp,
+        l.level,
+        l.message,
+        l.source,
+        l.environment,
+        l.metadata,
+        l.trace_id,
+        l.user_id,
+        e.embedded_text,
+        cosineDistance(e.embedding, ${embeddingStr}) AS distance
+      FROM logs_db.log_embeddings e
+      INNER JOIN ${this.tableName} l ON e.log_id = l.id
+      ${whereClause}
+      ORDER BY distance ASC
+      LIMIT ${parseInt(limit, 10)}
+    `;
+
+    const result = await this.client.query({ query, format: 'JSONEachRow' });
+
+    const logs = [];
+    for await (const row of result.stream()) {
+      logs.push({
+        ...row,
+        metadata: row.metadata ? JSON.parse(row.metadata) : {},
+        similarity: 1 - row.distance // Convert distance to similarity (0-1)
+      });
+    }
+
+    return logs;
+  }
+
 
   /**
    * Build WHERE clause with cursor-based pagination support.

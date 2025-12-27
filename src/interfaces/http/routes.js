@@ -1,4 +1,5 @@
 const { createIdempotencyMiddleware, createIdempotencyHook } = require('../middleware/idempotency.middleware');
+const logsOpenApiConfig = require('../../infrastructure/openapi/logs-openapi');
 
 
 /**
@@ -9,6 +10,11 @@ const { createIdempotencyMiddleware, createIdempotencyHook } = require('../middl
  */
 async function setupRoutes(fastify, controllers, rootLogger) {
   const logger = rootLogger.child({ component: 'Routes' });
+
+  // Redirect root to Swagger UI
+  fastify.get('/', async (request, reply) => {
+    return reply.code(308).redirect('/api/docs');
+  });
 
   // Create idempotency middleware if store is available
   let idempotencyMiddleware = null;
@@ -174,6 +180,66 @@ async function setupRoutes(fastify, controllers, rootLogger) {
       }
     }
   }, async (request, reply) => await controllers.getLogsByAppIdController.handle(request, reply));
+
+  // =============================================
+  // SEMANTIC SEARCH ROUTE
+  // =============================================
+
+  // Semantic search requires the semanticSearchController to be configured
+  if (controllers.semanticSearchController) {
+    fastify.post('/api/logs/search', {
+      schema: {
+        summary: 'Semantic Search',
+        description: 'Search logs using natural language queries powered by vector embeddings',
+        tags: ['logs'],
+        body: logsOpenApiConfig.openapi.components.schemas.SemanticSearchRequest,
+        response: {
+          200: {
+            description: 'Successful search results',
+            type: 'object',
+            properties: {
+              success: {
+                type: 'boolean',
+                example: true
+              },
+              message: {
+                type: 'string',
+                example: 'Found 15 similar logs'
+              },
+              data: {
+                type: 'object',
+                properties: {
+                  query: {
+                    type: 'string',
+                    description: 'The processed search query'
+                  },
+                  logs: {
+                    type: 'array',
+                    items: logsOpenApiConfig.openapi.components.schemas.LogEntry,
+                    description: 'List of logs matching the semantic query'
+                  },
+                  metadata: {
+                    type: 'object',
+                    description: 'Search metadata (execution time, model used, etc.)'
+                  }
+                }
+              }
+            }
+          },
+          400: {
+            description: 'Invalid request',
+            ...logsOpenApiConfig.openapi.components.schemas.BadRequestResponse
+          },
+          500: {
+            description: 'Server error',
+            ...logsOpenApiConfig.openapi.components.schemas.ErrorResponse
+          }
+        }
+      }
+    }, async (request, reply) => await controllers.semanticSearchController.handle(request, reply));
+
+    logger.info('Semantic search route enabled at POST /api/logs/search');
+  }
 }
 
 module.exports = setupRoutes;

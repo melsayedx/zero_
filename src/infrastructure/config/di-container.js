@@ -2,10 +2,12 @@ const { createClickHouseClient } = require('../database/clickhouse');
 const ClickHouseRepository = require('../../interfaces/persistence/clickhouse.repository');
 const RedisLogRepository = require('../../interfaces/persistence/redis-log.repository');
 const IngestLogUseCase = require('../../application/use-cases/logs/ingest-log.use-case');
-const GetLogsByAppIdUseCase = require('../../application/use-cases/logs/get-logs-by-app-id.use-case');
-const { IngestLogController, HealthCheckController, GetLogsByAppIdController } = require('../../interfaces/http/controllers');
+const LogRetrievalUseCase = require('../../application/use-cases/logs/log-retrieval.use-case');
+const SemanticSearchUseCase = require('../../application/use-cases/logs/semantic-search.use-case');
+const { IngestLogController, HealthCheckController, LogRetrievalController, SemanticSearchController } = require('../../interfaces/http/controllers');
 const { StatsController } = require('../../interfaces/http/controllers');
-const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../../interfaces/grpc/handlers');
+const { TransformersProvider, OpenAIProvider } = require('../embeddings');
+const { IngestLogsHandler, HealthCheckHandler, LogRetrievalHandler } = require('../../interfaces/grpc/handlers');
 const WorkerValidationStrategy = require('../strategies/worker-validation.strategy');
 const LogProcessorThreadManager = require('../workers/log-processor-thread-manager');
 const LogIngestionService = require('../../application/services/log-ingest.service');
@@ -27,15 +29,15 @@ const { LoggerFactory } = require('../logging');
  * @property {RedisLogRepository} redisLogRepository - Redis repository implementation
  * @property {RedisLogRepository} logRepository - Default log repository (Redis for ingestion)
  * @property {IngestLogUseCase} ingestLogUseCase - Log ingestion use case
- * @property {GetLogsByAppIdUseCase} getLogsByAppIdUseCase - Log retrieval use case
+ * @property {LogRetrievalUseCase} getLogsByAppIdUseCase - Log retrieval use case
  * @property {LogIngestionService} logIngestionService - Log ingestion service with coalescing and batching
  * @property {IngestLogController} ingestLogController - Log ingestion HTTP controller
  * @property {HealthCheckController} healthCheckController - Health check HTTP controller
- * @property {GetLogsByAppIdController} getLogsByAppIdController - Log retrieval HTTP controller
+ * @property {LogRetrievalController} getLogsByAppIdController - Log retrieval HTTP controller
  * @property {StatsController} statsController - Statistics HTTP controller
  * @property {IngestLogsHandler} [ingestLogsHandler] - Log ingestion gRPC handler
  * @property {HealthCheckHandler} [healthCheckHandler] - Health check gRPC handler
- * @property {GetLogsByAppIdHandler} [getLogsByAppIdHandler] - Log retrieval gRPC handler
+ * @property {LogRetrievalHandler} [getLogsByAppIdHandler] - Log retrieval gRPC handler
  */
 
 
@@ -206,10 +208,15 @@ class DIContainer {
       this.instances.logger.child({ component: 'IngestLogUseCase' })
     );
 
-    // GetLogsByAppIdUseCase still reads from ClickHouse
-    this.instances.getLogsByAppIdUseCase = new GetLogsByAppIdUseCase(
+    // LogRetrievalUseCase still reads from ClickHouse
+    this.instances.logRetrievalUseCase = new LogRetrievalUseCase(
       this.instances.clickhouseRepository
     );
+
+    // Initialize vector search if enabled
+    if (process.env.ENABLE_VECTOR_SEARCH === 'true') {
+      await this._initializeVectorSearch();
+    }
 
     // 1. Initialize LogIngestionService (Pure Application Service) - Dependencies: UseCases
     this.instances.logIngestionService = new LogIngestionService(
@@ -251,8 +258,8 @@ class DIContainer {
       this.instances.logRepository
     );
 
-    this.instances.getLogsByAppIdController = new GetLogsByAppIdController(
-      this.instances.getLogsByAppIdUseCase
+    this.instances.getLogsByAppIdController = new LogRetrievalController(
+      this.instances.logRetrievalUseCase
     );
 
     this.instances.statsController = new StatsController(
@@ -273,12 +280,59 @@ class DIContainer {
       this.instances.logRepository
     );
 
-    this.instances.getLogsByAppIdHandler = new GetLogsByAppIdHandler(
-      this.instances.getLogsByAppIdUseCase,
+    this.instances.getLogsByAppIdHandler = new LogRetrievalHandler(
+      this.instances.logRetrievalUseCase,
       null // verifyAppAccessUseCase - not available without MongoDB
     );
 
+    // Semantic search controller (optional - requires ENABLE_VECTOR_SEARCH)
+    if (this.instances.semanticSearchUseCase) {
+      this.instances.semanticSearchController = new SemanticSearchController(
+        this.instances.semanticSearchUseCase
+      );
+      this.logger.info('Semantic search controller initialized');
+    }
+
     this.logger.info('Interface adapters initialized');
+  }
+
+  /**
+   * Initialize vector search components (embedding provider + use case)
+   * @private
+   */
+  async _initializeVectorSearch() {
+    this.logger.info('Initializing vector search...');
+
+    // Choose embedding provider based on config
+    const provider = process.env.EMBEDDING_PROVIDER || 'transformers';
+
+    if (provider === 'openai' && process.env.OPENAI_API_KEY) {
+      this.instances.embeddingProvider = new OpenAIProvider({
+        apiKey: process.env.OPENAI_API_KEY,
+        model: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
+        logger: this.instances.logger.child({ component: 'OpenAIProvider' })
+      });
+    } else {
+      this.instances.embeddingProvider = new TransformersProvider({
+        modelName: process.env.EMBEDDING_MODEL || 'Xenova/all-MiniLM-L6-v2',
+        logger: this.instances.logger.child({ component: 'TransformersProvider' })
+      });
+    }
+
+    // Initialize provider (downloads model if needed)
+    await this.instances.embeddingProvider.initialize();
+
+    // Create semantic search use case
+    this.instances.semanticSearchUseCase = new SemanticSearchUseCase(
+      this.instances.clickhouseRepository,
+      this.instances.embeddingProvider,
+      this.instances.logger.child({ component: 'SemanticSearchUseCase' })
+    );
+
+    this.logger.info('Vector search initialized', {
+      provider: this.instances.embeddingProvider.getName(),
+      dimension: this.instances.embeddingProvider.getDimension()
+    });
   }
 
   get(name) {
@@ -294,7 +348,8 @@ class DIContainer {
       healthCheckController: this.instances.healthCheckController,
       getLogsByAppIdController: this.instances.getLogsByAppIdController,
       statsController: this.instances.statsController,
-      idempotencyStore: this.instances.idempotencyStore
+      idempotencyStore: this.instances.idempotencyStore,
+      semanticSearchController: this.instances.semanticSearchController || null
     };
     return controllers;
   }

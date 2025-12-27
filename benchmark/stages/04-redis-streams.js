@@ -88,8 +88,8 @@ async function run() {
 
     const requestManager = new RequestManager(producerBatchProcessor, {
         enabled: true,
-        maxWaitTime: 20,
-        maxBatchSize: 500,
+        maxWaitTime: 50,      // Match project COALESCER_MAX_WAIT_TIME
+        maxBatchSize: 5000,   // Match project COALESCER_MAX_BATCH_SIZE
         logger: { info: () => { }, debug: () => { }, error: console.error }
     });
 

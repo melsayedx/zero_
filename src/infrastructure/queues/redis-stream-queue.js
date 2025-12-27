@@ -92,10 +92,34 @@ class RedisStreamQueue {
         } catch (error) {
             // BUSYGROUP means group already exists - that's fine
             if (!error.message.includes('BUSYGROUP')) {
+                this.logger.error('Failed to create consumer group', { error: error.message, stack: error.stack });
                 throw error;
             }
 
-            this.logger.debug('Consumer group already exists', { groupName: this.groupName });
+            this.logger.debug('Consumer group already exists (BUSYGROUP)', { groupName: this.groupName });
+        }
+
+        // Verify group exists
+        try {
+            const groups = await this.redis.xinfo('GROUPS', this.streamKey);
+            const groupExists = groups.some(g => {
+                // ioredis returns array of arrays or objects depending on version/config
+                // Usually objects for xinfo in recent versions, but let's check carefully
+                const name = g.name || (Array.isArray(g) ? g[1] : null);
+                return name === this.groupName;
+            });
+
+            if (!groupExists) {
+                this.logger.error('CRITICAL: Consumer group does not exist after creation!', {
+                    groupName: this.groupName,
+                    groups: JSON.stringify(groups)
+                });
+            } else {
+                this.logger.info('Verified consumer group exists', { groupName: this.groupName });
+            }
+        } catch (err) {
+            // XINFO might fail if key doesn't exist (but creation should have made it)
+            this.logger.warn('Failed to verify consumer group', { error: err.message });
         }
 
         // Recovery is now handled explicitly by the worker
@@ -221,7 +245,7 @@ class RedisStreamQueue {
      * @param {number} [count] - Number of messages to read
      * @returns {Promise<Array>} Array of messages
      */
-    async readPending(count = this.batchSize) {
+    async readPending(count = this.batchSize, startId = '0-0') {
         if (!this.isInitialized) {
             await this.initialize();
         }
@@ -231,15 +255,17 @@ class RedisStreamQueue {
                 groupName: this.groupName,
                 consumerName: this.consumerName,
                 count,
+                startId,
                 streamKey: this.streamKey,
             });
-            // XREADGROUP ... STREAMS key 0-0
-            // '0-0' means "all pending messages for this consumer"
+            // XREADGROUP ... STREAMS key startId
+            // If startId is '0-0', it gets all pending messages > 0-0
+            // If startId is last message ID, it gets next page of pending messages
             const result = await this.redis.xreadgroup(
                 'GROUP', this.groupName, this.consumerName,
                 'COUNT', count,
                 'STREAMS', this.streamKey,
-                '0-0'
+                startId
             );
 
             if (!result || result.length === 0) {

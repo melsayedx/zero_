@@ -1,24 +1,25 @@
 {
   "stage": "02-fire-and-forget",
-  "duration": 3.736467888,
+  "duration": 5.058678634,
   "throughput": {
     "totalRequests": 5000,
-    "requestsPerSec": 1338.1621761177037,
+    "requestsPerSec": 988.4004029025261,
     "bytesPerSec": 0,
     "failedRequests": 0
   },
   "latency": {
-    "min": 0.020637000000022,
-    "max": 6.764565000000005,
-    "avg": 0.03983818759999962,
-    "p50": 0.030499999999989313,
-    "p95": 0.04907399999999029,
-    "p99": 0.07797800000000166,
-    "p999": 4.261235999999997
+    "min": 0.020507000000009157,
+    "max": 11.810917000000018,
+    "avg": 0.04678586260000054,
+    "p50": 0.0307809999999904,
+    "p95": 0.059629000000029464,
+    "p99": 0.12995300000000043,
+    "p999": 6.173928999999987
   },
   "system": {
-    "avgMemoryHeapMB": 88.55762414371266,
-    "peakMemoryHeapMB": 134.47550201416016,
+    "avgMemoryHeapMB": 88.53041740085767,
+    "peakMemoryHeapMB": 137.1265869140625,
     "avgEventLoopLagMs": null
-  }
+  },
+  "description": "Fire-and-Forget: Validate (sync) → Insert (async, no wait)"
 }

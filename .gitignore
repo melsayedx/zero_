@@ -5,8 +5,6 @@ node_modules/
 dist/
 coverage/
 
-*.md
-
 # SSL Certificates
 certs/
 

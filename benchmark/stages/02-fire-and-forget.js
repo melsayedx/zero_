@@ -6,6 +6,24 @@ const fs = require('fs');
 
 const ITERATIONS = process.env.BENCHMARK_ITERATIONS || 5000;
 
+/**
+ * Simple synchronous validation (like the project's SyncValidationStrategy)
+ * Validates log structure before accepting
+ */
+function validateLog(log) {
+    // Basic validation - similar to what SyncValidationStrategy does
+    if (!log.app_id || typeof log.app_id !== 'string' || log.app_id.length === 0) {
+        throw new Error('app_id is required');
+    }
+    if (!log.level || !['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'].includes(log.level)) {
+        throw new Error('Invalid log level');
+    }
+    if (!log.message || typeof log.message !== 'string') {
+        throw new Error('message is required');
+    }
+    return { valid: true, normalized: log };
+}
+
 async function run() {
     const monitor = new PerformanceMonitor('02-fire-and-forget');
 
@@ -16,6 +34,7 @@ async function run() {
     const clickhouse = createClickHouseClient();
 
     console.log(`Starting Fire-and-Forget Benchmark: ${ITERATIONS} inserts...`);
+    console.log('Flow: Validate → Fire-and-Forget Insert (no wait for DB confirmation)');
 
     monitor.start();
 
@@ -27,33 +46,47 @@ async function run() {
     try {
         const promises = [];
 
-        // TRUE Fire-and-Forget: We DON'T await each insert
-        // We fire the promise and immediately continue to the next iteration
-        // This measures how fast we can DISPATCH requests, not wait for responses
+        // Fire-and-Forget with Validation:
+        // 1. Validate the log (SYNC - client waits for this)
+        // 2. Fire the insert (ASYNC - client does NOT wait)
+        // This ensures data is valid before accepting, but doesn't wait for DB write
 
         for (let i = 0; i < ITERATIONS; i++) {
             const start = performance.now();
 
-            // Fire the insert WITHOUT awaiting - this is TRUE fire-and-forget
-            const promise = clickhouse.insert({
-                table: 'logs_benchmark',
-                values: [{
-                    id: `log-ff-${i}`,
-                    app_id: 'benchmark-app',
-                    level: 'INFO',
-                    message: `Benchmark log entry ${i} - fire-and-forget`,
-                    timestamp: Date.now()
-                }],
-                format: 'JSONEachRow'
-            }).catch(err => {
-                // Silently catch errors - that's the fire-and-forget tradeoff
-                monitor.recordRequest(0, 0, true); // Record as error
-            });
+            // Create log entry
+            const logEntry = {
+                id: `log-ff-${i}`,
+                app_id: 'benchmark-app',
+                level: 'INFO',
+                message: `Benchmark log entry ${i} - fire-and-forget`,
+                timestamp: Date.now()
+            };
 
-            promises.push(promise);
+            try {
+                // STEP 1: Validate (sync - client waits for this)
+                validateLog(logEntry);
 
-            const duration = performance.now() - start;
-            monitor.recordRequest(duration, 0);
+                // STEP 2: Fire the insert WITHOUT awaiting
+                // Client gets response HERE - after validation, before DB write
+                const promise = clickhouse.insert({
+                    table: 'logs_benchmark',
+                    values: [logEntry],
+                    format: 'JSONEachRow'
+                }).catch(err => {
+                    // Background errors are logged but not returned to client
+                    // This is the fire-and-forget tradeoff
+                });
+
+                promises.push(promise);
+
+                const duration = performance.now() - start;
+                monitor.recordRequest(duration, 0);
+
+            } catch (validationError) {
+                // Validation errors ARE returned to client
+                monitor.recordRequest(0, 0, true);
+            }
 
             if (i % 1000 === 0) process.stdout.write('.');
         }
@@ -72,6 +105,7 @@ async function run() {
 
     console.log('\n\nBenchmark Complete.');
     const results = monitor.getResults();
+    results.description = 'Fire-and-Forget: Validate (sync) → Insert (async, no wait)';
 
     const resultsDir = path.join(__dirname, '../results');
     if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });

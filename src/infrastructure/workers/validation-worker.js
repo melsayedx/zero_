@@ -80,7 +80,6 @@ async function validateBatch(logsDataArray) {
     for (let i = 0; i < length; i++) {
       const data = logsDataArray[i];
       try {
-        // normalize() now returns primitives directly
         validEntries[validCount++] = LogEntry.normalize(data);
       } catch (error) {
         errors.push({ data, error: error.message });

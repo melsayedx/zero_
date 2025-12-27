@@ -1,4 +1,3 @@
-const jwt = require('jsonwebtoken');
 const grpc = require('@grpc/grpc-js');
 const { LoggerFactory } = require('../../infrastructure/logging');
 const {
@@ -18,39 +17,6 @@ const logger = LoggerFactory.named('gRPC');
  * These handlers are PRIMARY ADAPTERS (like HTTP controllers) that depend on use cases
  */
 
-/**
- * Helper function to extract and verify JWT from gRPC metadata
- * @param {Object} metadata - gRPC metadata
- * @returns {Object|null} { user_id, email } or null if invalid
- */
-function extractUserFromMetadata(metadata) {
-  const jwtSecret = process.env.JWT_SECRET || 'default-secret-change-in-production';
-
-  try {
-    const authMetadata = metadata.get('authorization');
-
-    if (!authMetadata || authMetadata.length === 0) {
-      return null;
-    }
-
-    const authHeader = authMetadata[0];
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return null;
-    }
-
-    const token = authHeader.substring(7);
-    const payload = jwt.verify(token, jwtSecret);
-
-    return {
-      user_id: payload.user_id,
-      email: payload.email
-    };
-  } catch (error) {
-    logger.error('Token verification failed', { error: error.message });
-    return null;
-  }
-}
 
 /**
  * Handler for ingesting log entries via gRPC
@@ -265,20 +231,20 @@ class HealthCheckHandler {
 /**
  * Handler for retrieving logs by app_id via gRPC
  * 
- * This is a PRIMARY ADAPTER that depends on the GetLogsByAppIdUseCase
+ * This is a PRIMARY ADAPTER that depends on the LogRetrievalUseCase
  */
-class GetLogsByAppIdHandler {
-  constructor(getLogsByAppIdUseCase, verifyAppAccessUseCase) {
-    if (!getLogsByAppIdUseCase) {
-      throw new Error('GetLogsByAppIdUseCase is required');
+class LogRetrievalHandler {
+  constructor(logRetrievalUseCase, verifyAppAccessUseCase) {
+    if (!logRetrievalUseCase) {
+      throw new Error('LogRetrievalUseCase is required');
     }
 
     // Validate that the use case implements the execute method
-    if (typeof getLogsByAppIdUseCase.execute !== 'function') {
-      throw new Error('GetLogsByAppIdUseCase must implement the execute() method');
+    if (typeof logRetrievalUseCase.execute !== 'function') {
+      throw new Error('LogRetrievalUseCase must implement the execute() method');
     }
 
-    this.getLogsByAppIdUseCase = getLogsByAppIdUseCase;
+    this.logRetrievalUseCase = logRetrievalUseCase;
     this.verifyAppAccessUseCase = verifyAppAccessUseCase;
   }
 
@@ -328,7 +294,7 @@ class GetLogsByAppIdHandler {
       */
 
       // Execute use case
-      const queryResult = await this.getLogsByAppIdUseCase.execute(app_id, queryLimit);
+      const queryResult = await this.logRetrievalUseCase.execute(app_id, queryLimit);
 
       // Transform QueryResult to gRPC response (LogEntry with id and timestamp)
       const logsList = queryResult.logs.map(log => {
@@ -366,7 +332,7 @@ class GetLogsByAppIdHandler {
       return callback(null, response);
 
     } catch (error) {
-      logger.error('GetLogsByAppId gRPC error', { error });
+      logger.error('LogRetrievalHandler gRPC error', { error });
 
       const errorResponse = new GetLogsByAppIdResponse();
       errorResponse.setSuccess(false);
@@ -387,6 +353,6 @@ class GetLogsByAppIdHandler {
 module.exports = {
   IngestLogsHandler,
   HealthCheckHandler,
-  GetLogsByAppIdHandler
+  LogRetrievalHandler
 };
 

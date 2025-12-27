@@ -61,8 +61,8 @@ async function run() {
     // REQUEST MANAGER SETUP
     const requestManager = new RequestManager(batchProcessor, {
         enabled: true,
-        maxWaitTime: 20,     // Short wait for fast coalescing
-        maxBatchSize: 500,   // Good batch size
+        maxWaitTime: 50,     // Match project COALESCER_MAX_WAIT_TIME
+        maxBatchSize: 5000,  // Match project COALESCER_MAX_BATCH_SIZE
         logger: {
             info: () => { },
             debug: () => { },

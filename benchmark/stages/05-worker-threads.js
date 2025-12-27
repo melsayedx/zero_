@@ -3,7 +3,6 @@ const Redis = require('ioredis');
 const { createClickHouseClient } = require('../../src/infrastructure/database/clickhouse');
 const RedisStreamQueue = require('../../src/infrastructure/queues/redis-stream-queue');
 const RequestManager = require('../../src/infrastructure/request-processing/request-manager');
-const WorkerPool = require('../../src/infrastructure/workers/worker-pool');
 const PerformanceMonitor = require('../lib/PerformanceMonitor');
 const path = require('path');
 const fs = require('fs');
@@ -14,23 +13,34 @@ const CONSUMER_BATCH_SIZE = 500;
 /**
  * Stage 05: Full Pipeline with Worker Threads (CUMULATIVE)
  * 
- * Builds on ALL previous stages:
- * - Stage 01: ClickHouse insert (baseline)
- * - Stage 02: Fire-and-forget (async insert)
- * - Stage 03: Coalescing (batching)
- * - Stage 04: Redis Streams (buffer)
- * - Stage 05: Worker Threads (CPU offload) ← THIS STAGE
+ * Matches actual project flow from DI Container:
  * 
- * Full flow:
- * Request → Worker Thread (validation) → Coalescing → Redis Streams → ClickHouse
+ * Producer (Main Thread):
+ *   HTTP Request → RequestManager (coalescing) → Redis Stream (XADD)
+ * 
+ * Consumer (Worker Threads via LogProcessorThreadManager):
+ *   Redis Stream (XREADGROUP) → BatchBuffer → ClickHouse
+ * 
+ * Key difference from Stage 04:
+ *   - Uses separate worker THREADS for Redis→ClickHouse processing
+ *   - Main thread is freed for HTTP handling
+ *   - True CPU isolation via worker_threads
  */
 async function run() {
     const monitor = new PerformanceMonitor('05-full-pipeline-with-workers');
     console.log(`Starting Full Pipeline + Workers Benchmark: ${ITERATIONS} logs...`);
-    console.log('Flow: Worker Validation → Coalescing → Redis Streams → ClickHouse');
+    console.log('Flow: RequestManager → Redis Streams → Worker Threads → ClickHouse');
 
     // ===== INFRASTRUCTURE SETUP =====
     const clickhouse = createClickHouseClient();
+
+    // Clean up old benchmark logs to ensure accurate counting
+    console.log('Cleaning up old benchmark logs...');
+    await clickhouse.command({
+        query: "ALTER TABLE logs DELETE WHERE app_id = 'benchmark-app'"
+    });
+    // Wait for mutation to process
+    await new Promise(r => setTimeout(r, 1000));
 
     const redisClient = new Redis({
         host: process.env.REDIS_HOST || 'localhost',
@@ -39,45 +49,52 @@ async function run() {
     });
     await redisClient.connect();
 
+    // Producer queue - main thread writes to this
     const queue = new RedisStreamQueue(redisClient, {
         streamKey: 'benchmark:workers:stream',
         groupName: 'benchmark-workers-group',
-        consumerName: 'benchmark-consumer',
+        consumerName: 'benchmark-producer',
         batchSize: CONSUMER_BATCH_SIZE,
         blockMs: 100,
         logger: { info: () => { }, debug: () => { }, error: console.error }
     });
     await queue.initialize();
 
-    // WORKER POOL for validation
-    const workerPool = new WorkerPool({
-        minWorkers: 2,
-        maxWorkers: 4,
-        workerPath: path.resolve(__dirname, '../../src/infrastructure/workers/validation-worker.js'),
-        logger: { info: () => { }, warn: () => { }, error: console.error }
-    });
-    await new Promise(r => setTimeout(r, 1000)); // Wait for workers to init
+    // ===== WORKER THREAD MANAGER (Redis → ClickHouse) =====
+    // This matches the project's LogProcessorThreadManager from DI Container
+    const { redisConfig } = require('../../src/infrastructure/database/redis');
+    const LogProcessorThreadManager = require('../../src/infrastructure/workers/log-processor-thread-manager');
 
-    // ===== COALESCING PRODUCER (with worker validation) =====
+    const threadManager = new LogProcessorThreadManager({
+        workerCount: 3,
+        redisConfig: { ...redisConfig, host: process.env.REDIS_HOST || 'localhost', port: process.env.REDIS_PORT || 6379 },
+        streamKey: 'benchmark:workers:stream',
+        groupName: 'benchmark-workers-group',
+        batchSize: CONSUMER_BATCH_SIZE,
+        maxBatchSize: 10000,
+        maxWaitTime: 500,             // Faster flushes for benchmark
+        pollInterval: 0,
+        claimMinIdleMs: 5000,         // Faster stale claim for benchmark
+        retryQueueLimit: 10000,
+        logger: { info: () => { }, warn: () => { }, error: console.error, child: () => ({ info: () => { }, warn: () => { }, error: console.error }) }
+    });
+
+    console.log('Starting worker threads...');
+    await threadManager.start();
+
+    // ===== PRODUCER: RequestManager → Redis Stream =====
+    // This matches the project flow: RequestManager coalesces, then writes to Redis
     const producerBatchProcessor = async (batch) => {
         try {
-            // WORKER THREAD: Offload validation to worker
-            const validationResult = await workerPool.execute('validate_batch', {
-                logs: batch.map(item => ({
-                    app_id: 'benchmark-app',
-                    level: 'INFO',
-                    message: item.message || 'worker-validated log'
-                }))
-            });
-
-            // Push validated batch to Redis stream (fire-and-forget to Redis)
-            const messages = batch.map((item, idx) => ({
+            // Transform and write directly to Redis stream (like RedisLogRepository.saveBatch)
+            const messages = batch.map(item => ({
                 id: item.id,
                 app_id: 'benchmark-app',
                 level: 'INFO',
-                message: 'Worker-validated + coalesced + redis-buffered',
+                message: item.message || 'Coalesced + Redis-buffered log',
                 timestamp: Date.now(),
-                validated: true
+                source: 'benchmark',
+                environment: 'development'
             }));
 
             await queue.add(messages);
@@ -91,51 +108,39 @@ async function run() {
 
     const requestManager = new RequestManager(producerBatchProcessor, {
         enabled: true,
-        maxWaitTime: 20,
-        maxBatchSize: 500,
+        maxWaitTime: 50,              // Match project setting (COALESCER_MAX_WAIT_TIME)
+        maxBatchSize: 5000,           // Match project setting (COALESCER_MAX_BATCH_SIZE)
         logger: { info: () => { }, debug: () => { }, error: console.error }
     });
 
-    // ===== CONSUMER (Redis → ClickHouse) =====
-    // ===== WORKER THREAD MANAGER (Redis → ClickHouse) =====
-    const { redisConfig } = require('../../src/infrastructure/database/redis');
-    const LogProcessorThreadManager = require('../../src/infrastructure/workers/log-processor-thread-manager');
-
-    // Create thread manager
-    const threadManager = new LogProcessorThreadManager({
-        workerCount: 3, // Enable parallelism
-        redisConfig: { ...redisConfig, host: process.env.REDIS_HOST || 'localhost', port: process.env.REDIS_PORT || 6379 },
-        streamKey: 'benchmark:workers:stream',
-        groupName: 'benchmark-workers-group',
-        batchSize: CONSUMER_BATCH_SIZE,
-        logger: { info: () => { }, warn: () => { }, error: console.error, child: () => ({ info: () => { }, warn: () => { }, error: console.error }) }
-    });
-
-    console.log('Starting worker threads...');
-    await threadManager.start();
-
     // ===== CONSUMER MONITORING =====
-    // Since workers run in background, we poll ClickHouse to check progress
     let consumedCount = 0;
     const waitForCompletion = async () => {
         const startTime = Date.now();
         while (Date.now() - startTime < 60000) { // 60s timeout
             try {
-                // Check pending messages (should be 0 when done)
                 const pendingInfo = await queue.getPendingInfo();
 
-                // Also check ClickHouse count if needed (optional for speed here)
-                // For now, we trust flow if pending -> 0 and stream length correct
+                const result = await clickhouse.query({
+                    query: "SELECT count() as count FROM logs WHERE app_id = 'benchmark-app'",
+                    format: 'JSONEachRow',
+                });
+                const rows = await result.json();
+                if (rows.length > 0) {
+                    consumedCount = Number(rows[0].count);
+                }
+
+                if (Date.now() % 5000 < 600) {
+                    console.log(`Waiting... Pending: ${pendingInfo.pendingCount}, Consumed: ${consumedCount}/${ITERATIONS}`);
+                }
 
                 if (pendingInfo.pendingCount === 0 && consumedCount >= ITERATIONS) {
                     return;
                 }
 
-                // Naive progress estimation based on producer
-                // In a real benchmark we'd query CH "SELECT count() FROM logs_benchmark"
-                // But let's assume if queue is empty after production, we're done
-
-            } catch (err) { }
+            } catch (err) {
+                // Ignore polling errors
+            }
             await new Promise(r => setTimeout(r, 500));
         }
         console.warn('Timeout waiting for workers to finish');
@@ -149,7 +154,7 @@ async function run() {
         monitor.snapshotSystemMetrics();
     }, 100);
 
-    console.log('\nProducing (P) with worker validation, consuming (C)...');
+    console.log('\nProducing logs via RequestManager...');
 
     const promises = [];
     for (let i = 0; i < ITERATIONS; i++) {
@@ -158,7 +163,7 @@ async function run() {
         const promise = requestManager.add({
             id: `log-workers-${i}`,
             index: i,
-            message: `Log entry ${i} for worker validation`
+            message: `Log entry ${i}`
         })
             .then(() => {
                 const duration = performance.now() - start;
@@ -174,20 +179,29 @@ async function run() {
     }
 
     await Promise.allSettled(promises);
+    console.log('\nPromises settled. Flushing RequestManager...');
+
     await requestManager.forceFlush();
 
-    console.log('\nProducer done. Waiting for consumer...');
-
-    const consumerTimeout = setTimeout(() => { consumerRunning = false; }, 30000);
-    await consumerPromise;
-    clearTimeout(consumerTimeout);
-
-    // ===== CLEANUP =====
+    // ===== STOP TIMING HERE =====
+    // Client gets response when data reaches Redis, not ClickHouse
+    // So we measure producer throughput, not end-to-end time
     clearInterval(systemInterval);
     monitor.stop();
 
+    console.log('RequestManager flushed. Producer timing complete.');
+
+    console.log('\nWaiting for worker threads to process (not timed)...');
+
+    await consumerPromise;
+
+    // ===== CLEANUP =====
+
+    // IMPORTANT: Stop worker threads FIRST before cleaning up Redis
+    console.log('Stopping worker threads...');
+    await threadManager.shutdown();
+
     await requestManager.shutdown();
-    await workerPool.shutdown();
     await redisClient.del('benchmark:workers:stream');
     await redisClient.quit();
     await clickhouse.close();
@@ -199,7 +213,7 @@ async function run() {
     const results = monitor.getResults();
     results.pipeline = {
         consumedLogs: consumedCount,
-        description: 'Worker Threads → Coalescing → Redis Streams → ClickHouse (full cumulative)'
+        description: 'RequestManager → Redis Streams → Worker Threads → ClickHouse'
     };
 
     const resultsDir = path.join(__dirname, '../results');

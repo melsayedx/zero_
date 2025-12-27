@@ -55,7 +55,6 @@ async function main() {
             await new Promise(r => setTimeout(r, 2000));
         } catch (err) {
             console.error('Benchmark suite paused due to error:', err);
-            // Continue or break? Let's break to fix issues.
             process.exit(1);
         }
     }

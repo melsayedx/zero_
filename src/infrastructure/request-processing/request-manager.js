@@ -102,7 +102,10 @@ class RequestManager extends RequestProcessingPort {
             if (this.pendingIndex >= this.maxBatchSize) {
                 this.flush();
             } else if (this.pendingIndex === 1 && !this.timer) {
-                this.timer = setTimeout(() => this.flush(), this.maxWaitTime);
+                this.timer = setTimeout(() => {
+                    this.timer = null;
+                    this.flush();
+                }, this.maxWaitTime);
             }
         });
     }
@@ -169,7 +172,10 @@ class RequestManager extends RequestProcessingPort {
         } finally {
             this.isFlushing = false;
             if (this.pendingIndex > 0 && !this.timer) {
-                this.timer = setTimeout(() => this.flush(), this.maxWaitTime);
+                this.timer = setTimeout(() => {
+                    this.timer = null;
+                    this.flush();
+                }, this.maxWaitTime);
             }
         }
     }

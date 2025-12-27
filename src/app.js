@@ -29,7 +29,13 @@ async function createApp(options = {}) {
   const fastifyOptions = {
     logger: false,
     bodyLimit: 10485760, // 10MB limit (same as Express)
-    requestIdHeader: 'x-request-id'
+    requestIdHeader: 'x-request-id',
+    ajv: {
+      customOptions: {
+        strict: false,
+        keywords: ['example'] // Explicitly allow 'example' keyword
+      }
+    }
   };
 
   if (enableHttp2) {

@@ -147,11 +147,19 @@ async function processPending() {
     logger.info('Checking for pending messages...');
 
     // 1. Process own PEL
-    let pending = await streamQueue.readPending();
+    let startId = '0-0';
+    let pending = await streamQueue.readPending(batchSize, startId);
     while (pending && pending.length > 0) {
-        logger.info('Processing own pending messages', { count: pending.length });
+        logger.info('Processing own pending messages', { count: pending.length, startId });
         await processMessages(pending);
-        pending = await streamQueue.readPending();
+
+        // Update startId to the last message ID to get next page
+        const lastMsg = pending[pending.length - 1];
+        if (lastMsg && lastMsg.id) {
+            startId = lastMsg.id;
+        }
+
+        pending = await streamQueue.readPending(batchSize, startId);
     }
 
     // 2. Claim stale messages from dead workers
@@ -172,8 +180,26 @@ async function processMessages(messages) {
     const logEntries = messages.map(msg => {
         try {
             const entry = msg.data;
-            entry._redisId = msg.id;
-            return entry;
+
+            // Normalize to expected format (camelCase) for Repository
+            const normalized = {
+                appId: entry.app_id,
+                message: entry.message,
+                source: entry.source || 'unknown',
+                level: entry.level || 'INFO',
+                environment: entry.environment || 'development',
+                timestamp: entry.timestamp,
+                // Ensure metadata is a string if Repository expects metadataString 
+                // OR handle it if Repository expects object. 
+                // Looking at ClickHouseRepository.save: metadata: log.metadataString
+                metadataString: typeof entry.metadata === 'string' ? entry.metadata : JSON.stringify(entry.metadata || {}),
+                traceId: entry.trace_id,
+                userId: entry.user_id,
+                // Internal tracking
+                _redisId: msg.id
+            };
+
+            return normalized;
         } catch (error) {
             logger.error('Failed to parse log entry', { error: error.message });
             streamQueue.ack([msg.id]).catch(() => { });

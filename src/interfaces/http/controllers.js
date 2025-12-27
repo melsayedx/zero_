@@ -109,22 +109,22 @@ class HealthCheckController {
 }
 
 /**
- * Controller for retrieving logs by app_id
+ * Controller for retrieving logs
  * 
- * This is a PRIMARY ADAPTER that depends on the GetLogsByAppIdUseCase
+ * This is a PRIMARY ADAPTER that depends on the LogRetrievalUseCase
  */
-class GetLogsByAppIdController {
-  constructor(getLogsByAppIdUseCase) {
-    if (!getLogsByAppIdUseCase) {
-      throw new Error('GetLogsByAppIdUseCase is required');
+class LogRetrievalController {
+  constructor(logRetrievalUseCase) {
+    if (!logRetrievalUseCase) {
+      throw new Error('LogRetrievalUseCase is required');
     }
 
     // Validate that the use case implements the execute method
-    if (typeof getLogsByAppIdUseCase.execute !== 'function') {
-      throw new Error('GetLogsByAppIdUseCase must implement the execute() method');
+    if (typeof logRetrievalUseCase.execute !== 'function') {
+      throw new Error('LogRetrievalUseCase must implement the execute() method');
     }
 
-    this.getLogsByAppIdUseCase = getLogsByAppIdUseCase;
+    this.logRetrievalUseCase = logRetrievalUseCase;
   }
 
   /**
@@ -138,7 +138,7 @@ class GetLogsByAppIdController {
       const limit = parseInt(request.query.limit) || 1000;
 
       // Execute use case
-      const queryResult = await this.getLogsByAppIdUseCase.execute(app_id, limit);
+      const queryResult = await this.logRetrievalUseCase.execute(app_id, limit);
 
       // Return successful query result
       return reply.code(200).send({
@@ -212,10 +212,76 @@ class StatsController {
   }
 }
 
+/**
+ * Controller for semantic log search using natural language queries
+ */
+class SemanticSearchController {
+  constructor(semanticSearchUseCase) {
+    if (!semanticSearchUseCase) {
+      throw new Error('SemanticSearchUseCase is required');
+    }
+    this.semanticSearchUseCase = semanticSearchUseCase;
+  }
+
+  /**
+   * Handle POST /api/logs/search request
+   * @param {FastifyRequest} request - Fastify request
+   * @param {FastifyReply} reply - Fastify reply
+   */
+  async handle(request, reply) {
+    try {
+      const { query, app_id, limit = 20, level, time_range } = request.body;
+
+      if (!query || typeof query !== 'string') {
+        return reply.code(400).send({
+          success: false,
+          message: 'Query string is required',
+          error: 'Missing or invalid query parameter'
+        });
+      }
+
+      const result = await this.semanticSearchUseCase.execute({
+        query,
+        appId: app_id,
+        limit,
+        level,
+        timeRange: time_range
+      });
+
+      if (!result.success) {
+        return reply.code(400).send({
+          success: false,
+          message: result.error,
+          logs: []
+        });
+      }
+
+      return reply.code(200).send({
+        success: true,
+        message: `Found ${result.logs.length} similar logs`,
+        data: {
+          query: result.query,
+          logs: result.logs,
+          metadata: result.metadata
+        }
+      });
+
+    } catch (error) {
+      logger.error('SemanticSearchController error', { error: error.message });
+      return reply.code(500).send({
+        success: false,
+        message: 'Semantic search failed',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+}
+
 module.exports = {
   IngestLogController,
   HealthCheckController,
-  GetLogsByAppIdController,
-  StatsController
+  LogRetrievalController,
+  StatsController,
+  SemanticSearchController
 };
 

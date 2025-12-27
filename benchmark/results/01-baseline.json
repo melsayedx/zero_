@@ -1,25 +1,25 @@
 {
   "stage": "01-baseline-sync-insert",
-  "duration": 32.988832477,
+  "duration": 42.951026217000006,
   "throughput": {
     "totalRequests": 5000,
-    "requestsPerSec": 151.56644308300477,
+    "requestsPerSec": 116.41165393205439,
     "bytesPerSec": 0,
     "failedRequests": 0
   },
   "latency": {
-    "min": 4.500237000000197,
-    "max": 17.93844900000113,
-    "avg": 6.595768971200017,
-    "p50": 6.4898209999992105,
-    "p95": 7.727320000001782,
-    "p99": 9.108308000000761,
-    "p999": 12.411129000000074
+    "min": 5.712912000002689,
+    "max": 85.88402700000006,
+    "avg": 8.587931172799967,
+    "p50": 8.273054000004777,
+    "p95": 10.766853000000083,
+    "p99": 12.950449999996636,
+    "p999": 52.04721900000004
   },
   "system": {
-    "avgMemoryHeapMB": 17.95963829991303,
-    "peakMemoryHeapMB": 29.032608032226562,
-    "avgEventLoopLagMs": 10.147017106648759
+    "avgMemoryHeapMB": 18.477322836902655,
+    "peakMemoryHeapMB": 28.970870971679688,
+    "avgEventLoopLagMs": 10.144504101278775
   },
   "description": "Baseline: Synchronous ClickHouse inserts (async_insert=0)"
 }

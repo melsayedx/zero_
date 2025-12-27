@@ -193,6 +193,11 @@ class BatchBuffer {
 
     this.metrics.totalLogsBuffered += logs.length;
 
+    // Ensure flush timer is running if buffer has items
+    if (!this.flushTimer && !this.isFlushing) {
+      this.startFlushTimer();
+    }
+
     // Check if we need to flush based on size
     if (this.buffer.length >= this.maxBatchSize) {
       await this.flush();
@@ -346,12 +351,19 @@ class BatchBuffer {
       clearTimeout(this.flushTimer);
     }
 
-    // Only set timer if not shutting down and buffer is not empty
-    if (!this.isShuttingDown && this.buffer.length > 0) {
+    // Always set timer if not shutting down - timer will check buffer on fire
+    // This ensures we never miss a flush even if add() timing is unusual
+    if (!this.isShuttingDown) {
       this.flushTimer = setTimeout(() => {
-        this.flush().catch(error => {
-          this.logger.error('Timer flush error', { error: error.message });
-        });
+        if (this.buffer.length > 0) {
+          this.flush().catch(error => {
+            this.logger.error('Timer flush error', { error: error.message });
+          });
+        }
+        // Restart timer for next interval if still running
+        if (!this.isShuttingDown) {
+          this.startFlushTimer();
+        }
       }, this.maxWaitTime);
     }
   }
@@ -370,12 +382,9 @@ class BatchBuffer {
    * ```
    */
   resetFlushTimer() {
-    // Only reset timer if buffer is empty or if we're not in high-throughput mode
-    // This optimization reduces timer reset frequency during rapid flushes
-    const shouldResetTimer = this.buffer.length === 0 ||
-      (this.flushTimer && this.buffer.length < this.maxBatchSize * 0.1);
-
-    if (!this.isShuttingDown && shouldResetTimer) {
+    // Always ensure timer is running after a flush if we're not shutting down
+    // The timer will self-restart on each tick, so just make sure it's active
+    if (!this.isShuttingDown && !this.flushTimer) {
       this.startFlushTimer();
     }
   }
