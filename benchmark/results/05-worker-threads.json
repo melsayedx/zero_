@@ -1,0 +1,24 @@
+{
+  "stage": "05-worker-threads",
+  "duration": 0.6399968490000001,
+  "throughput": {
+    "totalRequests": 5000,
+    "requestsPerSec": 7812.538464544846,
+    "bytesPerSec": 0,
+    "failedRequests": 0
+  },
+  "latency": {
+    "min": 0.0784240000000409,
+    "max": 1.6196590000001834,
+    "avg": 0.12721862080000054,
+    "p50": 0.11021600000003673,
+    "p95": 0.20705900000007205,
+    "p99": 0.38367600000015045,
+    "p999": 1.015517999999929
+  },
+  "system": {
+    "avgMemoryHeapMB": 9.046229044596354,
+    "peakMemoryHeapMB": 10.225936889648438,
+    "avgEventLoopLagMs": 10.394434938347706
+  }
+}

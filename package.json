@@ -16,7 +16,14 @@
     "cluster:dev": "npm run build:proto && nodemon cluster.js",
     "cluster:dev:http2": "ENABLE_HTTP2=true npm run cluster:dev",
     "cluster:prod": "NODE_ENV=production npm run build:proto && NODE_ENV=production node cluster.js",
-    "setup:certs": "bash setup-certs.sh"
+    "setup:certs": "bash setup-certs.sh",
+    "benchmark": "node benchmark/benchmark-runner.js",
+    "benchmark:baseline": "node benchmark/stages/01-baseline.js",
+    "benchmark:ff": "node benchmark/stages/02-fire-and-forget.js",
+    "benchmark:coalesce": "node benchmark/stages/03-coalescing.js",
+    "benchmark:pipeline": "node benchmark/stages/04-redis-streams.js",
+    "benchmark:workers": "node benchmark/stages/05-worker-threads.js",
+    "benchmark:report": "node benchmark/generate-report.js"
   },
   "keywords": [
     "logs",
@@ -46,7 +53,9 @@
     "protobufjs": "^7.5.4"
   },
   "devDependencies": {
+    "chart.js": "^4.5.1",
     "grpc-tools": "^1.13.1",
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "perf_hooks": "^0.0.1"
   }
 }

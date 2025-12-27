@@ -22,8 +22,7 @@
  * ```
  */
 
-const { LoggerFactory } = require('../../infrastructure/logging');
-const logger = LoggerFactory.named('IdempotencyMiddleware');
+
 
 /**
  * Create idempotency preHandler middleware for Fastify.
@@ -39,6 +38,7 @@ const logger = LoggerFactory.named('IdempotencyMiddleware');
  */
 function createIdempotencyMiddleware(idempotencyStore, options = {}) {
     const headerName = (options.headerName || 'idempotency-key').toLowerCase();
+    const logger = options.logger ? options.logger.child({ component: 'IdempotencyMiddleware' }) : { debug: () => { }, error: () => { } };
 
     return async function idempotencyMiddleware(request, reply) {
         // Get idempotency key from header (case-insensitive)
@@ -94,6 +94,7 @@ function createIdempotencyMiddleware(idempotencyStore, options = {}) {
  */
 function createIdempotencyHook(idempotencyStore, options = {}) {
     const ttl = options.ttl;
+    const logger = options.logger ? options.logger.child({ component: 'IdempotencyHook' }) : { debug: () => { }, error: () => { } };
 
     return async function idempotencyOnSend(request, reply, payload) {
         // Only cache if we have an idempotency key

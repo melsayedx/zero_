@@ -275,13 +275,34 @@ class BatchBuffer {
       });
 
       // Queue failed batch for retry using the configured strategy
-      await this.retryStrategy.queueForRetry(logsToFlush, error, {
-        repository: this.repository.constructor.name,
-        bufferConfig: {
-          maxBatchSize: this.maxBatchSize,
-          maxWaitTime: this.maxWaitTime
+      try {
+        await this.retryStrategy.queueForRetry(logsToFlush, error, {
+          repository: this.repository.constructor.name,
+          bufferConfig: {
+            maxBatchSize: this.maxBatchSize,
+            maxWaitTime: this.maxWaitTime
+          }
+        });
+
+        // CRITICAL FIX: If effectively queued for retry (DLQ), we MUST ACK the original messages
+        // so the worker doesn't re-process them infinitely. The DLQ is now the source of truth.
+        if (this.onFlushSuccess) {
+          try {
+            this.logger.info('ACKing messages after successful retry queuing', { count: logsToFlush.length });
+            await this.onFlushSuccess(logsToFlush);
+          } catch (ackError) {
+            this.logger.error('Failed to ACK after retry queueing', { error: ackError.message });
+          }
         }
-      });
+      } catch (retryError) {
+        // Double failure: Save failed AND Retry Queue failed.
+        // DO NOT ACK. Let the worker restart/reclaim these messages later.
+        this.logger.error('Critical: Failed to queue for retry. Messages will remain pending.', {
+          error: retryError.message,
+          count: logsToFlush.length
+        });
+        throw retryError;
+      }
 
       throw error;
 

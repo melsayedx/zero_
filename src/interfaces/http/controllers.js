@@ -12,17 +12,8 @@ const logger = LoggerFactory.named('HTTPController');
  * This is a PRIMARY ADAPTER that depends on the IngestLogPort (input port)
  */
 class IngestLogController {
-  constructor(ingestionService) {
-    if (!ingestionService) {
-      throw new Error('IngestionService is required');
-    }
-
-    // Validate that the service implements the ingest method
-    if (typeof ingestionService.ingest !== 'function' && typeof ingestionService.execute !== 'function') {
-      throw new Error('IngestionService must implement the ingest() or execute() method');
-    }
-
-    this.ingestionService = ingestionService;
+  constructor(requestManager) {
+    this.requestManager = requestManager;
   }
 
   /**
@@ -36,16 +27,13 @@ class IngestLogController {
     try {
       let logData = request.body;
 
-      // Ensure array format for batch validation
       if (!Array.isArray(logData)) {
         logData = [logData];
       }
 
-      // Support both define patterns (Service.ingest or UseCase.execute)
-      const method = this.ingestionService.ingest ? 'ingest' : 'execute';
-      const result = await this.ingestionService[method](logData);
+      const result = await this.requestManager.add(logData);
 
-      if (result.isFullSuccess() || result.isPartialSuccess()) {
+      if (result.isFullSuccess()) {
         return reply.code(202).send({
           success: true,
           message: 'Log data accepted',
@@ -183,10 +171,11 @@ class GetLogsByAppIdController {
  * Controller for retrieving batch buffer and system stats
  */
 class StatsController {
-  constructor(logRepository, optimizedIngestService = null, validationService = null) {
+  constructor(logRepository, optimizedIngestService = null, validationService = null, requestManager = null) {
     this.logRepository = logRepository;
     this.optimizedIngestService = optimizedIngestService;
     this.validationService = validationService;
+    this.requestManager = requestManager;
   }
 
   async handle(request, reply) {
@@ -197,6 +186,11 @@ class StatsController {
       // Add optimized ingest service stats
       if (this.optimizedIngestService) {
         stats.optimizations = this.optimizedIngestService.getStats();
+
+        // Add coalescer stats from request manager if available
+        if (this.requestManager) {
+          stats.optimizations.coalescer = this.requestManager.getStats();
+        }
       }
 
       // Add validation service stats

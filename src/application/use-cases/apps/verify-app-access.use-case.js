@@ -54,9 +54,7 @@ class VerifyAppAccessUseCase {
       };
 
     } catch (error) {
-      if (this.logger) {
-        this.logger.error('VerifyAppAccessUseCase error', { error });
-      }
+      this.logger.error('VerifyAppAccessUseCase error', { error });
       return {
         success: false,
         hasAccess: false,

@@ -1,0 +1,29 @@
+{
+  "stage": "04-full-pipeline",
+  "duration": 0.221615278,
+  "throughput": {
+    "totalRequests": 5000,
+    "requestsPerSec": 22561.621405903254,
+    "bytesPerSec": 0,
+    "failedRequests": 0
+  },
+  "latency": {
+    "min": 18.9512,
+    "max": 114.58035199999998,
+    "avg": 101.61638868820006,
+    "p50": 110.71152599999996,
+    "p95": 114.37325700000002,
+    "p99": 114.47705499999998,
+    "p999": 114.50099100000003
+  },
+  "system": {
+    "avgMemoryHeapMB": 25.465579986572266,
+    "peakMemoryHeapMB": 30.499588012695312,
+    "avgEventLoopLagMs": 15.413557333333333
+  },
+  "pipeline": {
+    "consumedLogs": 5000,
+    "consumerErrors": 0,
+    "description": "Coalescing → Redis Streams → ClickHouse (full end-to-end)"
+  }
+}

@@ -81,7 +81,7 @@ async function createApp(options = {}) {
   // Content parser middleware - handles both JSON and Protocol Buffer formats
   // Pass validation service for worker-based protobuf parsing
   const validationService = container.get('validationService');
-  await app.register(createContentParserMiddleware(validationService));
+  await app.register(createContentParserMiddleware(validationService, logger));
 
   // Request logging hook
   // app.addHook('onRequest', (request, reply, done) => {
@@ -98,7 +98,7 @@ async function createApp(options = {}) {
 
   // Setup routes with controllers from DI container
   const controllers = container.getControllers();
-  await setupRoutes(app, controllers);
+  await setupRoutes(app, controllers, logger);
 
   // 404 handler
   app.setNotFoundHandler((request, reply) => {
@@ -135,7 +135,9 @@ async function createApp(options = {}) {
 
       if (clusterMode) {
         logger.info('HTTP server listening', { workerId, port: HTTP_PORT });
-        logger.info('gRPC server listening', { workerId, port: GRPC_PORT });
+        if (workerId === 1) {
+          logger.info('gRPC server listening', { workerId, port: GRPC_PORT });
+        }
       } else {
         // Pretty print for development/standalone
         if (process.env.LOG_MODE !== 'json') {
@@ -166,10 +168,11 @@ Environment: ${process.env.NODE_ENV || 'development'}
   }
 
   // Start gRPC server (unless skipListen is true)
+  // In cluster mode, only start gRPC in worker 1 to avoid port conflicts
   let grpcServer;
-  if (!skipListen) {
+  if (!skipListen && (!clusterMode || workerId === 1)) {
     const handlers = container.getHandlers();
-    grpcServer = setupGrpcServer(handlers, GRPC_PORT);
+    grpcServer = await setupGrpcServer(handlers, GRPC_PORT, logger);
   }
 
   // Return application instance with lifecycle methods
@@ -199,13 +202,21 @@ Environment: ${process.env.NODE_ENV || 'development'}
         try {
           // Close HTTP server (Fastify app)
           if (app) {
-            await app.close();
+            const closePromise = app.close();
+            const timeoutPromise = new Promise(resolve =>
+              setTimeout(() => {
+                logger.warn('HTTP server close timed out, forcing progress...');
+                resolve();
+              }, 5000)
+            );
+
+            await Promise.race([closePromise, timeoutPromise]);
             logger.info('HTTP server closed');
           }
 
           // Shutdown gRPC server
           if (grpcServer) {
-            await shutdownGrpcServer(grpcServer);
+            await shutdownGrpcServer(grpcServer, logger);
             logger.info('gRPC server closed');
           }
 
@@ -293,6 +304,12 @@ if (require.main === module) {
       const options = cluster.isWorker
         ? { clusterMode: true, workerId: cluster.worker.id }
         : { clusterMode: false };
+
+      // Auto-set WORKER_INSTANCE_ID for cluster workers to ensure unique Redis consumer names
+      // cluster.worker.id is stable (1, 2, 3...) and unique across workers
+      if (cluster.isWorker && !process.env.WORKER_INSTANCE_ID) {
+        process.env.WORKER_INSTANCE_ID = `cluster-${cluster.worker.id}`;
+      }
 
       const appInstance = await createApp(options);
 

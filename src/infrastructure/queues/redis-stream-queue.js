@@ -98,8 +98,8 @@ class RedisStreamQueue {
             this.logger.debug('Consumer group already exists', { groupName: this.groupName });
         }
 
-        // Recover pending messages from crashed workers
-        await this.recoverPendingMessages();
+        // Recovery is now handled explicitly by the worker
+        // await this.recoverPendingMessages();
 
         this.isInitialized = true;
 
@@ -215,6 +215,54 @@ class RedisStreamQueue {
     }
 
     /**
+     * Read pending messages from the consumer's PEL (Pending Entry List).
+     * These are messages delivered to this consumer but not yet ACKed.
+     *
+     * @param {number} [count] - Number of messages to read
+     * @returns {Promise<Array>} Array of messages
+     */
+    async readPending(count = this.batchSize) {
+        if (!this.isInitialized) {
+            await this.initialize();
+        }
+
+        try {
+            this.logger.info('Reading pending messages', {
+                groupName: this.groupName,
+                consumerName: this.consumerName,
+                count,
+                streamKey: this.streamKey,
+            });
+            // XREADGROUP ... STREAMS key 0-0
+            // '0-0' means "all pending messages for this consumer"
+            const result = await this.redis.xreadgroup(
+                'GROUP', this.groupName, this.consumerName,
+                'COUNT', count,
+                'STREAMS', this.streamKey,
+                '0-0'
+            );
+
+            if (!result || result.length === 0) {
+                return [];
+            }
+
+            const [, messages] = result[0];
+            const parsedMessages = [];
+            for (const [id, fields] of messages) {
+                const message = this._parseMessage(id, fields);
+                if (message) {
+                    parsedMessages.push(message);
+                }
+            }
+            this.logger.info('Pending messages parsed', { count: parsedMessages.length });
+            return parsedMessages;
+        } catch (error) {
+            this.logger.error('Error reading pending messages', { error: error.message });
+            return [];
+        }
+    }
+
+    /**
      * Acknowledge messages as successfully processed.
      *
      * Removes messages from the pending list. Only call this after the messages
@@ -274,9 +322,10 @@ class RedisStreamQueue {
         const pipeline = this.redis.pipeline();
 
         for (const msg of messages) {
-            // XADD streamKey * field value [field value ...]
-            // We serialize the entire message as JSON in a 'data' field
-            pipeline.xadd(this.streamKey, '*', 'data', JSON.stringify(msg));
+            // XADD streamKey MAXLEN ~ 100000 * field value
+            // '~' means approximate trimming (much faster than exact)
+            // 100000 is the limit - older messages are removed from history
+            pipeline.xadd(this.streamKey, 'MAXLEN', '~', 100000, '*', 'data', JSON.stringify(msg));
         }
 
         const results = await pipeline.exec();

@@ -36,7 +36,7 @@ class IngestLogUseCase extends IngestLogContract {
    * @param {LogRepository} logRepository - Repository for persisting log entries
    * @param {ValidationStrategyContract} validationStrategy - Strategy for validating log entries
    */
-  constructor(logRepository, validationStrategy) {
+  constructor(logRepository, validationStrategy, logger) {
     super();
     if (!logRepository || typeof logRepository.save !== 'function') {
       throw new Error('LogRepository is required and must implement the save() method');
@@ -46,6 +46,7 @@ class IngestLogUseCase extends IngestLogContract {
     }
     this.logRepository = logRepository;
     this.validationStrategy = validationStrategy;
+    this.logger = logger;
   }
 
   /**
@@ -94,8 +95,8 @@ class IngestLogUseCase extends IngestLogContract {
   async execute(logsData) {
     const startTime = Date.now();
 
-    if (!Array.isArray(logsData) || logsData.length === 0) {
-      throw new Error('Input must be an array of log entries');
+    if (!logsData || logsData.length === 0) {
+      throw new Error('Invalid input: must be an array of log entries');
     }
 
     const { validEntries: validLogEntries, errors } = await this.validationStrategy.validateBatch(logsData);

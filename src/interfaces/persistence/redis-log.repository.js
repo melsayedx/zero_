@@ -59,7 +59,7 @@ class RedisLogRepository extends LogRepositoryContract {
    * ```
    */
   async save(logEntries) {
-    if (!Array.isArray(logEntries) || logEntries.length === 0) {
+    if (logEntries.length === 0) {
       return;
     }
 
@@ -67,22 +67,16 @@ class RedisLogRepository extends LogRepositoryContract {
       // Serialize and pipeline XADD operations
       // Pipelining reduces network RTT overhead significantly
       const pipeline = this.client.pipeline();
-      if (this.logger) {
-        this.logger.debug('Saving log entries to Redis stream', { count: logEntries.length });
-      }
+      this.logger.debug('Saving log entries to Redis stream', { count: logEntries.length });
       for (let i = 0; i < logEntries.length; i++) {
-        // XADD streamKey * data <json>
-        pipeline.xadd(this.streamKey, '*', 'data', JSON.stringify(logEntries[i]));
+        // XADD streamKey MAXLEN ~ 1000000 * data <json>
+        pipeline.xadd(this.streamKey, 'MAXLEN', '~', '1000000', '*', 'data', JSON.stringify(logEntries[i]));
       }
 
       await pipeline.exec();
+
     } catch (error) {
-      if (this.logger) {
-        this.logger.error('Failed to add logs to stream', { error: error.message });
-      } else {
-        // Fallback for critical error
-        console.error('[RedisLogRepository] Failed to add logs to stream:', error);
-      }
+      this.logger.error('Failed to add logs to stream', { error: error.message });
       throw new Error('Failed to queue logs for processing');
     }
   }

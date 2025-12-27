@@ -1,39 +1,27 @@
 const createAuthMiddleware = require('../middleware/auth.middleware');
 const { createIdempotencyMiddleware, createIdempotencyHook } = require('../middleware/idempotency.middleware');
-const LoggerFactory = require('../../infrastructure/logging/logger-factory');
-const logger = LoggerFactory.named('Routes');
 
-// Shared schema for a single log entry
-const logEntrySchema = {
-  type: 'object',
-  required: ['app_id', 'message', 'source'],
-  properties: {
-    app_id: { type: 'string', maxLength: 100 },
-    level: { type: 'string', enum: ['DEBUG', 'INFO', 'WARN', 'ERROR'] },
-    message: { type: 'string', maxLength: 10000 },
-    source: { type: 'string', maxLength: 255 },
-    timestamp: { type: 'string', format: 'date-time' },
-    metadata: { type: 'object' }
-  }
-};
 
 /**
  * Setup HTTP routes for Fastify
  * @param {FastifyInstance} fastify - Fastify app instance
  * @param {Object} controllers - Object containing controller instances
+ * @param {Object} rootLogger - Application logger instance
  */
-async function setupRoutes(fastify, controllers) {
-  const authMiddleware = createAuthMiddleware();
+async function setupRoutes(fastify, controllers, rootLogger) {
+  const logger = rootLogger.child({ component: 'Routes' });
 
   // Create idempotency middleware if store is available
   let idempotencyMiddleware = null;
   let idempotencyHook = null;
   if (controllers.idempotencyStore) {
     idempotencyMiddleware = createIdempotencyMiddleware(controllers.idempotencyStore, {
-      enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true'
+      enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true',
+      logger: rootLogger
     });
     idempotencyHook = createIdempotencyHook(controllers.idempotencyStore, {
-      enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true'
+      enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true',
+      logger: rootLogger
     });
   }
 
@@ -111,12 +99,7 @@ async function setupRoutes(fastify, controllers) {
   // Send Idempotency-Key header to prevent duplicate processing
   const ingestRouteOptions = {
     schema: {
-      body: {
-        oneOf: [
-          logEntrySchema,
-          { type: 'array', items: logEntrySchema }
-        ]
-      },
+      body: {}, // Validation temporarily disabled for performance (handled by ValidationService)
       response: {
         202: {
           type: 'object',

@@ -629,7 +629,7 @@ class ClickHouseRepository extends LogRepositoryContract {
         }
       } catch (error) {
         if (error.code === 'ABORT_ERR' || error.name === 'AbortError') {
-          if (this.logger) this.logger.warn('Stats query stream aborted');
+          this.logger.warn('Stats query stream aborted');
           // Return partial stats if available
         } else {
           throw error;

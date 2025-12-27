@@ -51,9 +51,7 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
       retries: 0
     };
 
-    if (this.logger) {
-      this.logger.info('InMemoryRetryStrategy initialized for development/testing');
-    }
+    this.logger.info('InMemoryRetryStrategy initialized for development/testing');
   }
 
   /**
@@ -86,13 +84,11 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
     // Schedule immediate processing (or with delay)
     this._scheduleProcessing(retryItem);
 
-    if (this.logger) {
-      this.logger.warn('Queued failed items for retry', {
-        itemCount: items.length,
-        error: error.message,
-        queueLength: this.retryQueue.length
-      });
-    }
+    this.logger.warn('Queued failed items for retry', {
+      itemCount: items.length,
+      error: error.message,
+      queueLength: this.retryQueue.length
+    });
   }
 
   /**
@@ -130,12 +126,10 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
         // Check max retries
         if (item.metadata.attempt >= this.maxRetries) {
           this.metrics.failed++;
-          if (this.logger) {
-            this.logger.warn('Max retries exceeded, dropping item', {
-              itemCount: item.items.length,
-              finalError: item.error.message
-            });
-          }
+          this.logger.warn('Max retries exceeded, dropping item', {
+            itemCount: item.items.length,
+            finalError: item.error.message
+          });
           continue;
         }
 
@@ -154,9 +148,7 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
             this._scheduleProcessing(item);
           } else {
             this.metrics.failed++;
-            if (this.logger) {
-              this.logger.warn('Item failed permanently after retries');
-            }
+            this.logger.warn('Item failed permanently after retries');
           }
 
           processed++;
@@ -227,9 +219,7 @@ class InMemoryRetryStrategy extends RetryStrategyContract {
     this.timeouts.clear();
     this.retryQueue.length = 0;
 
-    if (this.logger) {
-      this.logger.info('InMemoryRetryStrategy shutdown complete - all data cleared');
-    }
+    this.logger.info('InMemoryRetryStrategy shutdown complete - all data cleared');
   }
 }
 

@@ -72,9 +72,7 @@ class CreateAppUseCase {
       };
 
     } catch (error) {
-      if (this.logger) {
-        this.logger.error('CreateAppUseCase error', { error });
-      }
+      this.logger.error('CreateAppUseCase error', { error });
       return {
         success: false,
         message: 'Failed to create app',

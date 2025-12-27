@@ -110,9 +110,7 @@ class RegisterUserUseCase {
       };
 
     } catch (error) {
-      if (this.logger) {
-        this.logger.error('RegisterUserUseCase error', { error });
-      }
+      this.logger.error('RegisterUserUseCase error', { error });
       return {
         success: false,
         message: 'Failed to register user',

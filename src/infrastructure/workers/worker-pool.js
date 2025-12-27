@@ -52,10 +52,10 @@ class WorkerPool extends EventEmitter {
     // Start the pool
     this.initialize();
     this.startHealthChecks();
+    this.startHealthChecks();
+    this.isShuttingDown = false;
 
-    if (this.logger) {
-      this.logger.info('WorkerPool initialized', { minWorkers: this.minWorkers, maxWorkers: this.maxWorkers });
-    }
+    this.logger.info('WorkerPool initialized', { minWorkers: this.minWorkers, maxWorkers: this.maxWorkers });
   }
 
   /**
@@ -101,9 +101,7 @@ class WorkerPool extends EventEmitter {
 
     // Handle worker errors
     worker.on('error', (error) => {
-      if (this.logger) {
-        this.logger.error('Worker error', { workerId, error: error.message });
-      }
+      this.logger.error('Worker error', { workerId, error: error.message });
       workerState.health = 'error';
       this.metrics.unhealthyWorkers++;
       this.handleWorkerFailure(workerId);
@@ -111,9 +109,7 @@ class WorkerPool extends EventEmitter {
 
     // Handle worker exit
     worker.on('exit', (code) => {
-      if (this.logger) {
-        this.logger.warn('Worker exited', { workerId, code });
-      }
+      this.logger.warn('Worker exited', { workerId, code });
       this.removeWorker(workerId);
 
       // Replace worker if we're below minimum
@@ -205,6 +201,10 @@ class WorkerPool extends EventEmitter {
     this.metrics.totalTasks++;
 
     return new Promise((resolve, reject) => {
+      if (this.isShuttingDown) {
+        return reject(new Error('WorkerPool is shutting down'));
+      }
+
       const task = {
         requestId,
         type,
@@ -377,12 +377,29 @@ class WorkerPool extends EventEmitter {
   /**
    * Graceful shutdown
    */
-  async shutdown() {
-    if (this.logger) {
-      this.logger.info('WorkerPool shutting down...');
+  /**
+   * Graceful shutdown
+   */
+  async shutdown(timeoutMs = 10000) {
+    if (this.isShuttingDown) return;
+    this.isShuttingDown = true;
+
+    this.logger.info('WorkerPool shutting down...');
+
+    // Stop accepting new tasks (queue is drained by ensuring no new tasks added)
+    // Note: We don't clear taskQueue immediately to allow processing of queued tasks
+
+    // Wait for pending tasks to complete
+    const startTime = Date.now();
+    while ((this.pendingTasks.size > 0 || this.taskQueue.length > 0) && (Date.now() - startTime < timeoutMs)) {
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Stop accepting new tasks
+    if (this.pendingTasks.size > 0) {
+      this.logger.warn(`WorkerPool shutdown timed out with ${this.pendingTasks.size} pending tasks`);
+    }
+
+    // Clear any remaining queue items
     this.taskQueue = [];
 
     // Shutdown all workers
@@ -392,6 +409,11 @@ class WorkerPool extends EventEmitter {
         new Promise((resolve) => {
           workerState.worker.once('exit', resolve);
           workerState.worker.postMessage({ type: 'shutdown' });
+          // Force terminate if it doesn't exit quickly
+          setTimeout(() => {
+            workerState.worker.terminate();
+            resolve();
+          }, 1000);
         })
       );
     }
@@ -400,10 +422,7 @@ class WorkerPool extends EventEmitter {
     await Promise.all(shutdownPromises);
 
     this.workers.clear();
-    this.workers.clear();
-    if (this.logger) {
-      this.logger.info('WorkerPool shutdown complete');
-    }
+    this.logger.info('WorkerPool shutdown complete');
   }
 }
 

@@ -17,14 +17,13 @@ const { RegisterController, LoginController, MeController } = require('../../int
 const { CreateAppController, ListAppsController, GetAppController } = require('../../interfaces/http/app.controllers');
 const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../../interfaces/grpc/handlers');
 const WorkerValidationStrategy = require('../strategies/worker-validation.strategy');
-const LogProcessorWorker = require('../workers/log-processor.worker');
+const LogProcessorThreadManager = require('../workers/log-processor-thread-manager');
 const LogIngestionService = require('../../application/services/log-ingest.service');
-const RequestCoalescer = require('../request-coalescing/request-coalescer');
+const RequestManager = require('../request-processing/request-manager');
 
-const BatchBuffer = require('../buffers/batch-buffer');
 const RedisRetryStrategy = require('../retry-strategies/redis-retry-strategy');
 const RedisQueryCache = require('../cache/redis-query.cache');
-const { getRedisClient, createWorkerRedisClient, closeRedisConnection } = require('../database/redis');
+const { getRedisClient, closeRedisConnection, redisConfig } = require('../database/redis');
 const RedisIdempotencyStore = require('../idempotency/redis-idempotency.store');
 const { LoggerFactory } = require('../logging');
 
@@ -127,7 +126,8 @@ class DIContainer {
         queueName: 'clickhouse:dead-letter',
         maxRetries: 3,
         retryDelay: 1000,
-        enableLogging: process.env.ENABLE_RETRY_LOGGING !== 'false'
+        enableLogging: process.env.ENABLE_RETRY_LOGGING === 'true',
+        logger: this.instances.logger.child({ component: 'RedisRetryStrategy' })
       }
     );
 
@@ -142,7 +142,7 @@ class DIContainer {
       {
         tableName: process.env.CLICKHOUSE_TABLE || 'logs',
         queryCache: this.instances.clickhouseQueryCache,
-        logger: this.instances.logger
+        logger: this.instances.logger.child({ component: 'ClickHouseRepository' })
       }
     );
 
@@ -152,7 +152,7 @@ class DIContainer {
     this.instances.redisLogRepository = new RedisLogRepository(this.instances.redisClient, {
       queueKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
       maxBatchSize: parseInt(process.env.REDIS_BATCH_SIZE || '1000', 10),
-      logger: this.instances.logger
+      logger: this.instances.logger.child({ component: 'RedisLogRepository' })
     });
 
     // Default log repository now uses Redis for high-throughput ingestion
@@ -164,7 +164,8 @@ class DIContainer {
       {
         ttl: parseInt(process.env.IDEMPOTENCY_TTL_SECONDS) || 86400, // 24 hours
         prefix: process.env.IDEMPOTENCY_KEY_PREFIX || 'idempotency',
-        enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true'
+        enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true',
+        logger: this.instances.logger.child({ component: 'RedisIdempotencyStore' })
       }
     );
 
@@ -175,56 +176,39 @@ class DIContainer {
     this.logger.info('Phase 3: Initializing workers...');
 
     this.instances.validationService = new WorkerValidationStrategy({
-      logger: this.instances.logger,
+      logger: this.instances.logger.child({ component: 'WorkerValidationStrategy' }),
       smallBatchThreshold: parseInt(process.env.VALIDATION_SMALL_BATCH_THRESHOLD) || 50,
-      mediumBatchThreshold: parseInt(process.env.VALIDATION_MEDIUM_BATCH_THRESHOLD) || 500,
-      largeBatchThreshold: parseInt(process.env.VALIDATION_LARGE_BATCH_THRESHOLD) || 2000,
-      enableWorkerValidation: process.env.ENABLE_WORKER_VALIDATION !== 'false',
+      mediumBatchThreshold: parseInt(process.env.VALIDATION_MEDIUM_BATCH_THRESHOLD) || 100,
+      enableWorkerValidation: process.env.ENABLE_WORKER_VALIDATION === 'true',
       forceWorkerValidation: process.env.FORCE_WORKER_VALIDATION === 'true',
       workerPool: {
         minWorkers: parseInt(process.env.WORKER_POOL_MIN_WORKERS) || 2,
-        maxWorkers: parseInt(process.env.WORKER_POOL_MAX_WORKERS) || Math.min(require('os').cpus().length, 8),
+        maxWorkers: parseInt(process.env.WORKER_POOL_MAX_WORKERS) || Math.min(require('os').cpus().length, 8) / 2,
         taskTimeout: parseInt(process.env.WORKER_TASK_TIMEOUT) || 30000
       }
     });
 
-    // Initialize multiple Log Processor Workers for better parallelism
-    // Each worker consumes from Redis Stream and saves to ClickHouse (crash-proof)
-    const workerCount = parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 3; // 3 workers by default
-    this.instances.logProcessorWorkers = [];
-    this.instances.workerRedisClients = []; // Track clients for cleanup
+    // Initialize Log Processor Thread Manager
+    // Workers run in separate threads for true CPU isolation from main HTTP thread
+    this.instances.logProcessorThreadManager = new LogProcessorThreadManager({
+      workerCount: parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 3,
+      redisConfig: redisConfig,
+      streamKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
+      groupName: process.env.REDIS_CONSUMER_GROUP || 'log-processors',
+      batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 2000,
+      maxBatchSize: parseInt(process.env.WORKER_BUFFER_BATCH_SIZE) || 100000,
+      maxWaitTime: parseInt(process.env.WORKER_BUFFER_WAIT_TIME) || 1000,
+      pollInterval: parseInt(process.env.WORKER_POLL_INTERVAL) || 5,
+      claimMinIdleMs: parseInt(process.env.WORKER_CLAIM_MIN_IDLE) || 30000,
+      retryQueueLimit: parseInt(process.env.WORKER_RETRY_QUEUE_LIMIT) || 10000,
+      clickhouseTable: process.env.CLICKHOUSE_TABLE || 'logs',
+      logger: this.logger.child({ component: 'LogProcessorThreadManager' })
+    });
 
-    for (let i = 0; i < workerCount; i++) {
-      // Create dedicated Redis client for this worker to prevent blocking the shared client
-      const consumerName = `worker-${process.pid}-${i}`;
-      const workerClient = createWorkerRedisClient(consumerName);
-      this.instances.workerRedisClients.push(workerClient);
+    // Start all worker threads
+    await this.instances.logProcessorThreadManager.start();
 
-      const worker = new LogProcessorWorker(
-        workerClient,
-        this.instances.clickhouseRepository,
-        this.instances.clickhouseRetryStrategy,
-        {
-          streamKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
-          groupName: process.env.REDIS_CONSUMER_GROUP || 'log-processors',
-          consumerName: consumerName,
-          batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 2000,
-          maxBatchSize: parseInt(process.env.WORKER_BUFFER_BATCH_SIZE) || 100000,
-          maxWaitTime: parseInt(process.env.WORKER_BUFFER_WAIT_TIME) || 1000,
-          pollInterval: parseInt(process.env.WORKER_POLL_INTERVAL) || 5,
-          logger: this.logger.child({ worker: consumerName })
-        }
-      );
-
-      // Start worker with a small delay to avoid thundering herd
-      setTimeout(() => worker.start(), i * 100);
-      this.instances.logProcessorWorkers.push(worker);
-    }
-
-    // Keep backward compatibility
-    this.instances.logProcessorWorker = this.instances.logProcessorWorkers[0];
-
-    this.logger.info('Workers initialized with dedicated Redis connections');
+    this.logger.info('Worker threads initialized');
   }
 
   async _initializeCoreServices() {
@@ -239,7 +223,8 @@ class DIContainer {
     // IngestLogUseCase uses WorkerValidationStrategy for auto-selection
     this.instances.ingestLogUseCase = new IngestLogUseCase(
       this.instances.redisLogRepository,
-      this.instances.validationService
+      this.instances.validationService,
+      this.instances.logger.child({ component: 'IngestLogUseCase' })
     );
 
     // GetLogsByAppIdUseCase still reads from ClickHouse
@@ -247,31 +232,30 @@ class DIContainer {
       this.instances.clickhouseRepository
     );
 
-    // Create request coalescer first with placeholder processor
-    this.instances.requestCoalescer = new RequestCoalescer(
-      () => { /* placeholder - bound after service creation */ },
-      {
-        maxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 100,
-        maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 10000,
-        enabled: process.env.USE_REQUEST_COALESCING !== 'false',
-        logger: this.instances.logger
-      }
-    );
-
-    // Create optimized ingest service with injected coalescer
+    // 1. Initialize LogIngestionService (Pure Application Service) - Dependencies: UseCases
     this.instances.logIngestionService = new LogIngestionService(
       this.instances.ingestLogUseCase,
-      this.instances.requestCoalescer,
       {
-        logger: this.instances.logger,
-        useCoalescing: process.env.USE_REQUEST_COALESCING !== 'false',
-        maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 10000
+        logger: this.instances.logger.child({ component: 'LogIngestionService' })
       }
     );
 
-    // Bind the real processor function to the coalescer
-    this.instances.requestCoalescer.processor = (dataArray) =>
-      this.instances.logIngestionService.processBatch(dataArray);
+    // 2. Initialize RequestManager (Infrastructure Layer) - Dependencies: Application Service
+    // This wraps the service to provide coalescing/buffering
+    this.instances.requestManager = new RequestManager(
+      (dataArray) => this.instances.logIngestionService.processBatch(dataArray),
+      {
+        maxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 50,
+        maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 5000,
+        enabled: process.env.USE_REQUEST_COALESCING === 'true',
+        logger: this.instances.logger.child({ component: 'RequestManager' })
+      }
+    );
+
+
+
+    this.logger.info('Application services initialized');
+
 
     this.logger.info('Application services initialized');
   }
@@ -280,8 +264,9 @@ class DIContainer {
     this.logger.info('Phase 5: Initializing interface adapters...');
 
     this.instances.ingestLogController = new IngestLogController(
-      this.instances.logIngestionService
+      this.instances.requestManager
     );
+
 
     this.instances.healthCheckController = new HealthCheckController(
       this.instances.logRepository
@@ -293,8 +278,9 @@ class DIContainer {
 
     this.instances.statsController = new StatsController(
       this.instances.logRepository,
-      this.instances.logIngestionService,
-      this.instances.validationService
+      this.instances.logIngestionService, // Service metrics
+      this.instances.validationService,
+      this.instances.requestManager // Buffer/Coalescer metrics
     );
 
     // Initialize gRPC handlers
@@ -375,8 +361,9 @@ class DIContainer {
 
   async _cleanupCoreServices() {
     this.logger.debug('Cleaning up application services...');
-    if (this.instances.optimizedIngestService) {
-      await this.instances.optimizedIngestService.flush();
+
+    if (this.instances.requestManager) {
+      await this.instances.requestManager.shutdown();
     }
   }
 
@@ -385,22 +372,8 @@ class DIContainer {
     if (this.instances.validationService) {
       await this.instances.validationService.shutdown();
     }
-    if (this.instances.logProcessorWorkers) {
-      await Promise.all(
-        this.instances.logProcessorWorkers.map(worker => worker.stop())
-      );
-    } else if (this.instances.logProcessorWorker) {
-      // Backward compatibility
-      await this.instances.logProcessorWorker.stop();
-    }
-
-    // Close dedicated worker Redis connections
-    if (this.instances.workerRedisClients) {
-      this.logger.debug('Closing worker Redis connections', { count: this.instances.workerRedisClients.length });
-      await Promise.all(
-        this.instances.workerRedisClients.map(client => client.quit())
-      );
-      this.instances.workerRedisClients = [];
+    if (this.instances.logProcessorThreadManager) {
+      await this.instances.logProcessorThreadManager.shutdown();
     }
   }
 

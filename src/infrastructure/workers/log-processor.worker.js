@@ -69,6 +69,7 @@ class LogProcessorWorker {
     this.redis = redisClient;
     this.repository = repository;
     this.retryStrategy = retryStrategy;
+    this.options = options; // Store options for later use
 
     // Stream configuration
     this.streamKey = options.streamKey || 'logs:stream';
@@ -86,6 +87,8 @@ class LogProcessorWorker {
     // Buffer configuration
     this.maxBatchSize = options.maxBatchSize || 100000;
     this.maxWaitTime = options.maxWaitTime || 1000;
+    // New backpressure config
+    this.retryQueueLimit = options.retryQueueLimit || 10000;
 
     // Worker state
     this.isRunning = false;
@@ -116,7 +119,10 @@ class LogProcessorWorker {
       groupName: this.groupName,
       consumerName: this.consumerName,
       batchSize: this.batchSize,
-      logger: this.logger
+      logger: this.logger,
+      // Pass critical configuration for crash resilience
+      claimMinIdleMs: this.options.claimMinIdleMs,
+      blockMs: this.options.blockMs
     });
 
     await this.streamQueue.initialize();
@@ -141,8 +147,37 @@ class LogProcessorWorker {
       batchSize: this.batchSize
     });
 
+    // Process any pending messages from previous runs (or claimed ones)
+    await this.processPending();
+
     // Start the processing loop
     this.processLoop();
+  }
+
+  /**
+   * Process pending messages (own PEL and stale global messages).
+   * @private
+   */
+  async processPending() {
+    this.logger.info('Checking for pending messages...');
+
+    // 1. Process own PEL (messages we claimed but didn't ACK)
+    let pending = await this.streamQueue.readPending();
+    while (pending && pending.length > 0) {
+      this.logger.info('Processing own pending messages', { count: pending.length });
+      await this._processMessages(pending);
+      // Keep reading until empty
+      pending = await this.streamQueue.readPending();
+    }
+
+    // 2. Claim stale messages from other consumers (dead workers)
+    let claimed = await this.streamQueue.recoverPendingMessages();
+    while (claimed && claimed.length > 0) {
+      this.logger.info('Processing claimed stale messages', { count: claimed.length });
+      await this._processMessages(claimed);
+      // Keep claiming until empty
+      claimed = await this.streamQueue.recoverPendingMessages();
+    }
   }
 
   /**
@@ -222,41 +257,84 @@ class LogProcessorWorker {
     this.isProcessing = true;
 
     try {
+      // 1. BACKPRESSURE CHECK
+      // Check if retry queue (DLQ) is full. If so, pause consumption to prevent
+      // Redis memory exhaustion and data loss if ClickHouse is down for extended periods.
+      try {
+        const stats = await this.retryStrategy.getStats();
+        // Default limit 10,000 if not configured
+        const limit = this.retryQueueLimit || 10000;
+
+        if (stats.queueLength >= limit) {
+          this.logger.warn('Backpressure: Retry queue full, pausing consumption', {
+            queueLength: stats.queueLength,
+            limit
+          });
+          // Wait a bit before checking again to avoid hot loop
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          return;
+        }
+      } catch (statsError) {
+        this.logger.error('Failed to check retry queue stats', { error: statsError.message });
+        // Proceed with caution, or maybe fail open/closed depending on preference.
+        // Failing open (continuing) for now to avoid stalling on Redis blip.
+      }
+
       // Read batch of messages from Redis Stream
       const messages = await this.streamQueue.read(this.batchSize);
 
       if (!messages || messages.length === 0) {
+        // If no new messages, try to do some garbage collection on stale messages
+        // form dead consumers
+        const claimed = await this.streamQueue.recoverPendingMessages();
+        if (claimed && claimed.length > 0) {
+          this.logger.info('Idle worker claimed stale messages', { count: claimed.length });
+          await this._processMessages(claimed);
+          return;
+        }
+
         this.isProcessing = false;
         return;
       }
 
-      // Data from Redis is already normalized (camelCase)
-      // Just attach Redis ID for ACK tracking
-      const logEntries = messages.map(msg => {
-        try {
-          const entry = msg.data;
-          // Attach Redis message ID for ACK tracking
-          entry._redisId = msg.id;
-          return entry;
-        } catch (error) {
-          this.logger.error('Failed to parse log entry', { error: error.message });
-          // ACK invalid messages to remove them from stream
-          this.streamQueue.ack([msg.id]).catch(() => { });
-          return null;
-        }
-      }).filter(entry => entry !== null);
-
-      // Add to BatchBuffer (will flush automatically based on size/time)
-      if (logEntries.length > 0) {
-        await this.batchBuffer.add(logEntries);
-
-        this.logger.debug('Buffered logs', { count: logEntries.length, streamBatch: this.batchSize });
-      }
+      await this._processMessages(messages);
 
     } catch (error) {
       this.logger.error('Batch processing error', { error });
     } finally {
       this.isProcessing = false;
+    }
+  }
+
+  /**
+   * Helper to process a batch of raw Redis messages.
+   * @private
+   */
+  async _processMessages(messages) {
+    if (!messages || messages.length === 0) return;
+
+    // Data from Redis is already normalized (camelCase)
+    // Just attach Redis ID for ACK tracking
+    const logEntries = messages.map(msg => {
+      try {
+        const entry = msg.data;
+        // Attach Redis message ID for ACK tracking
+        entry._redisId = msg.id;
+        return entry;
+      } catch (error) {
+        this.logger.error('Failed to parse log entry', { error: error.message });
+        // ACK invalid messages to remove them from stream
+        this.streamQueue.ack([msg.id]).catch(() => { });
+        return null;
+      }
+    }).filter(entry => entry !== null);
+
+    // Add to BatchBuffer (will flush automatically based on size/time)
+    if (logEntries.length > 0) {
+      await this.batchBuffer.add(logEntries);
+
+      // Don't log every single batch at info level to avoid flood
+      this.logger.debug('Buffered messages', { count: logEntries.length });
     }
   }
 

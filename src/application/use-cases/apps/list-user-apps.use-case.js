@@ -45,9 +45,7 @@ class ListUserAppsUseCase {
       };
 
     } catch (error) {
-      if (this.logger) {
-        this.logger.error('ListUserAppsUseCase error', { error });
-      }
+      this.logger.error('ListUserAppsUseCase error', { error });
       return {
         success: false,
         message: 'Failed to retrieve apps',

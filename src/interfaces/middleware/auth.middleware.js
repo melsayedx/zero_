@@ -1,16 +1,15 @@
 const jwt = require('jsonwebtoken');
 const fp = require('fastify-plugin');
-const { LoggerFactory } = require('../../infrastructure/logging');
 
-const logger = LoggerFactory.named('AuthMiddleware');
 
 /**
  * JWT Authentication Plugin for Fastify
  * Extracts and verifies JWT token from Authorization header
  */
 class AuthMiddleware {
-  constructor() {
+  constructor(logger) {
     this.jwtSecret = process.env.JWT_SECRET || 'default-secret-change-in-production';
+    this.logger = logger || { error: () => { } };
   }
 
   /**
@@ -74,7 +73,7 @@ class AuthMiddleware {
         }
 
         // Other errors
-        logger.error('Authentication error', { error });
+        this.logger.error('Authentication error', { error });
         return reply.code(401).send({
           success: false,
           message: 'Authentication failed'
@@ -122,7 +121,7 @@ class AuthMiddleware {
 }
 
 // Export factory function for creating middleware (simplified for now)
-function createAuthMiddleware() {
+function createAuthMiddleware(rootLogger) {
   return {
     authenticate: () => (request, reply, done) => {
       // No authentication for now - just pass through

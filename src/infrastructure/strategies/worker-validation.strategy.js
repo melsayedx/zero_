@@ -21,27 +21,22 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
     this.logger = options.logger;
     // Pass logger to WorkerPool if available
     const workerPoolOptions = options.workerPool || {};
-    if (this.logger) {
-      workerPoolOptions.logger = this.logger;
-    }
+    workerPoolOptions.logger = this.logger;
     this.workerPool = new WorkerPool(workerPoolOptions);
 
     // Use injected sync strategy or create default - Composite Pattern
     this.defaultStrategy = options.defaultStrategy || new SyncValidationStrategy();
 
     // Configuration thresholds
-    this.smallBatchThreshold = options.smallBatchThreshold || 50;   // Use main thread
-    this.mediumBatchThreshold = options.mediumBatchThreshold || 500; // Use single worker
-    this.largeBatchThreshold = options.largeBatchThreshold || 2000; // Use multiple workers
+    this.smallBatchThreshold = options.smallBatchThreshold;   // Use main thread
+    this.mediumBatchThreshold = options.mediumBatchThreshold; // Use single worker
 
     // Performance tuning
-    this.enableWorkerValidation = options.enableWorkerValidation !== false;
-    this.forceWorkerValidation = options.forceWorkerValidation || false;
+    this.enableWorkerValidation = options.enableWorkerValidation;
+    this.forceWorkerValidation = options.forceWorkerValidation;
 
-    if (this.logger) {
-      this.logger.info('WorkerValidationStrategy initialized with worker thread support');
-      this.logger.debug('Validation thresholds', { small: this.smallBatchThreshold, medium: this.mediumBatchThreshold, large: this.largeBatchThreshold });
-    }
+    this.logger.info('WorkerValidationStrategy initialized with worker thread support');
+    this.logger.debug('Validation thresholds', { small: this.smallBatchThreshold, medium: this.mediumBatchThreshold });
   }
 
   /**
@@ -55,6 +50,7 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       (!this.forceWorkerValidation && batchSize <= this.smallBatchThreshold)) {
       return await this.validateBatchSync(logsDataArray);
     }
+    this.logger.info('Using worker validation', { batchSize });
 
     // Use workers for larger batches
     if (batchSize <= this.mediumBatchThreshold) {
@@ -116,9 +112,7 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       };
     } catch (error) {
       // Fallback to sync validation if worker fails
-      if (this.logger) {
-        this.logger.warn('Worker validation failed, falling back to sync', { error: error.message });
-      }
+      this.logger.warn('Worker validation failed, falling back to sync', { error: error.message });
       return await this.validateBatchSync(logsDataArray);
     }
   }
@@ -172,9 +166,7 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
         chunks: chunks.length
       };
     } catch (error) {
-      if (this.logger) {
-        this.logger.warn('Parallel validation failed, falling back to sync', { error: error.message });
-      }
+      this.logger.warn('Parallel validation failed, falling back to sync', { error: error.message });
       return await this.validateBatchSync(logsDataArray);
     }
   }
@@ -200,9 +192,7 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       return await this.workerPool.execute('parse_json', { jsonString });
     } catch (error) {
       // Fallback to main thread
-      if (this.logger) {
-        this.logger.warn('Worker JSON parsing failed, falling back to sync');
-      }
+      this.logger.warn('Worker JSON parsing failed, falling back to sync');
       return JSON.parse(jsonString);
     }
   }
@@ -227,9 +217,7 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       return result;
     } catch (error) {
       // Fallback to main thread
-      if (this.logger) {
-        this.logger.warn('Worker protobuf decoding failed, falling back to sync', { error: error.message });
-      }
+      this.logger.warn('Worker protobuf decoding failed, falling back to sync', { error: error.message });
       return null; // Signal to use main thread
     }
   }
@@ -255,9 +243,7 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       return await this.workerPool.execute('transform_data', { rows });
     } catch (error) {
       // Fallback to main thread
-      if (this.logger) {
-        this.logger.warn('Worker data transformation failed, falling back to sync');
-      }
+      this.logger.warn('Worker data transformation failed, falling back to sync');
       return rows.map(row => ({
         ...row,
         metadata: row.metadata ? JSON.parse(row.metadata) : {},
@@ -277,7 +263,6 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
       service: {
         smallBatchThreshold: this.smallBatchThreshold,
         mediumBatchThreshold: this.mediumBatchThreshold,
-        largeBatchThreshold: this.largeBatchThreshold,
         enableWorkerValidation: this.enableWorkerValidation,
         forceWorkerValidation: this.forceWorkerValidation,
         jsonWorkerThreshold: parseInt(process.env.JSON_WORKER_THRESHOLD) || 100000,
@@ -305,13 +290,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
    * Graceful shutdown
    */
   async shutdown() {
-    if (this.logger) {
-      this.logger.info('WorkerValidationStrategy shutting down...');
-    }
+    this.logger.info('WorkerValidationStrategy shutting down...');
     await this.workerPool.shutdown();
-    if (this.logger) {
-      this.logger.info('WorkerValidationStrategy shutdown complete');
-    }
+    this.logger.info('WorkerValidationStrategy shutdown complete');
   }
 }
 

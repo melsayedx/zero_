@@ -1,0 +1,24 @@
+{
+  "stage": "02-fire-and-forget",
+  "duration": 3.736467888,
+  "throughput": {
+    "totalRequests": 5000,
+    "requestsPerSec": 1338.1621761177037,
+    "bytesPerSec": 0,
+    "failedRequests": 0
+  },
+  "latency": {
+    "min": 0.020637000000022,
+    "max": 6.764565000000005,
+    "avg": 0.03983818759999962,
+    "p50": 0.030499999999989313,
+    "p95": 0.04907399999999029,
+    "p99": 0.07797800000000166,
+    "p999": 4.261235999999997
+  },
+  "system": {
+    "avgMemoryHeapMB": 88.55762414371266,
+    "peakMemoryHeapMB": 134.47550201416016,
+    "avgEventLoopLagMs": null
+  }
+}

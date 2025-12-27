@@ -80,16 +80,10 @@ class RedisIdempotencyStore extends IdempotencyContract {
             }
 
             const response = JSON.parse(cached);
-
-            if (this.logger) {
-                this.logger.debug('Cache HIT', { key });
-            }
-
+            this.logger.debug('Cache HIT', { key });
             return response;
         } catch (error) {
-            if (this.logger) {
-                this.logger.error('Error getting cached response', { error: error.message });
-            }
+            this.logger.error('Error getting cached response', { error: error.message });
             return null; // Fail open - allow request to proceed
         }
     }
@@ -122,16 +116,10 @@ class RedisIdempotencyStore extends IdempotencyContract {
             const result = await this.redis.set(redisKey, serialized, 'EX', effectiveTtl, 'NX');
 
             const wasSet = result === 'OK';
-
-            if (this.logger) {
-                this.logger.debug(wasSet ? 'Cache SET' : 'Cache EXISTS', { key });
-            }
-
+            this.logger.debug(wasSet ? 'Cache SET' : 'Cache EXISTS', { key });
             return wasSet;
         } catch (error) {
-            if (this.logger) {
-                this.logger.error('Error setting cached response', { error: error.message });
-            }
+            this.logger.error('Error setting cached response', { error: error.message });
             return false; // Fail open - don't prevent request processing
         }
     }
@@ -150,16 +138,10 @@ class RedisIdempotencyStore extends IdempotencyContract {
         try {
             const redisKey = this._buildKey(key);
             const deleted = await this.redis.del(redisKey);
-
-            if (this.logger) {
-                this.logger.debug('Cache DELETE', { key, removed: deleted });
-            }
-
+            this.logger.debug('Cache DELETE', { key, removed: deleted });
             return deleted > 0;
         } catch (error) {
-            if (this.logger) {
-                this.logger.error('Error deleting key', { error: error.message });
-            }
+            this.logger.error('Error deleting key', { error: error.message });
             return false;
         }
     }

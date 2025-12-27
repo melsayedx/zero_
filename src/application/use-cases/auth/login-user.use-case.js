@@ -82,9 +82,7 @@ class LoginUserUseCase {
       };
 
     } catch (error) {
-      if (this.logger) {
-        this.logger.error('LoginUserUseCase error', { error });
-      }
+      this.logger.error('LoginUserUseCase error', { error });
       return {
         success: false,
         message: 'Failed to login',

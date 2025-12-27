@@ -6,9 +6,6 @@
 
 const ProtobufParser = require('../parser/protobuf-parser');
 const fp = require('fastify-plugin');
-const { LoggerFactory } = require('../../infrastructure/logging');
-
-const logger = LoggerFactory.named('ContentParser');
 
 /**
  * Fastify plugin to add content type parsers for JSON and Protocol Buffer formats
@@ -25,7 +22,8 @@ const logger = LoggerFactory.named('ContentParser');
  * @param {Function} next - Next callback
  */
 function contentParserPlugin(fastify, options, next) {
-  const { validationService = null } = options;
+  const { validationService = null, rootLogger } = options;
+  const logger = rootLogger ? rootLogger.child({ component: 'ContentParser' }) : console;
   let protobufParser = null;
 
   // Initialize protobuf parser once
@@ -103,11 +101,12 @@ function contentParserPlugin(fastify, options, next) {
 /**
  * Factory function for creating content parser plugin
  * @param {ValidationService} validationService - Optional validation service for worker-based parsing
+ * @param {Object} rootLogger - Application logger instance
  * @returns {Function} Fastify plugin
  */
-function createContentParserMiddleware(validationService = null) {
+function createContentParserMiddleware(validationService = null, rootLogger) {
   return fp((fastify, options, next) => {
-    contentParserPlugin(fastify, { validationService, ...options }, next);
+    contentParserPlugin(fastify, { validationService, rootLogger, ...options }, next);
   });
 }
 
