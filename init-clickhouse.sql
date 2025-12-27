@@ -2,20 +2,13 @@
 -- LOG INGESTION PLATFORM - CLICKHOUSE SCHEMA
 -- ============================================
 -- 
--- This schema supports MongoDB-based authentication and app-level data isolation.
--- 
--- MONGODB INTEGRATION:
--- - app_id: Maps to MongoDB apps.app_id (globally unique, generated with nanoid)
--- - user_id: Optional field for logging context (not used for primary filtering)
+-- High-performance log storage with vector search capabilities.
 -- 
 -- DATA ISOLATION STRATEGY:
--- - Each MongoDB user can create multiple apps
--- - Each app has a unique app_id stored in MongoDB
--- - ClickHouse queries are filtered by app_id after ownership validation
--- - ORDER BY (app_id, timestamp, id) optimizes queries for app-level isolation
+-- - Each application has a unique app_id
+-- - ClickHouse queries are filtered by app_id for isolation
+-- - ORDER BY (app_id, timestamp, id) optimizes queries for app-level filtering
 --
--- Migration Script: Add app_id support to existing logs table
--- Run this if you already have a logs table without app_id
 CREATE DATABASE IF NOT EXISTS logs_db;
 
 USE logs_db;    
@@ -103,3 +96,34 @@ SETTINGS
     -- Memory settings for merges
     max_bytes_to_merge_at_max_space_in_pool = 1073741824,  -- 1GB max merge memory
     max_bytes_to_merge_at_min_space_in_pool = 134217728;   -- 128MB min merge memory
+
+
+-- ============================================
+-- LOG EMBEDDINGS TABLE - Vector Search Support
+-- ============================================
+-- Stores embeddings for semantic log search using ClickHouse native vector capabilities.
+-- Uses HNSW index for fast approximate nearest neighbor search.
+
+CREATE TABLE IF NOT EXISTS log_embeddings (
+    -- Foreign key to logs table
+    log_id UUID,
+    
+    -- Vector embedding (384 dimensions for all-MiniLM-L6-v2)
+    embedding Array(Float32),
+    
+    -- Original text that was embedded (for debugging/verification)
+    embedded_text String CODEC(ZSTD(19)),
+    
+    -- Metadata for filtering
+    app_id LowCardinality(String) CODEC(ZSTD(19)),
+    timestamp DateTime64(3) CODEC(Delta, ZSTD(19)),
+    
+    -- Embedding timestamp
+    created_at DateTime64(3) DEFAULT now(),
+    
+    -- Vector similarity index using HNSW algorithm
+    INDEX emb_idx embedding TYPE vector_similarity('hnsw', 'cosineDistance')
+    
+) ENGINE = MergeTree()
+ORDER BY (app_id, log_id)
+SETTINGS index_granularity = 8192;

@@ -1,4 +1,3 @@
-const createAuthMiddleware = require('../middleware/auth.middleware');
 const { createIdempotencyMiddleware, createIdempotencyHook } = require('../middleware/idempotency.middleware');
 
 
@@ -26,7 +25,7 @@ async function setupRoutes(fastify, controllers, rootLogger) {
   }
 
   // =================================
-  // CORE ROUTES (No MongoDB Required)
+  // CORE ROUTES
   // =================================
 
   // Health check endpoint
@@ -92,7 +91,7 @@ async function setupRoutes(fastify, controllers, rootLogger) {
   }, async (request, reply) => await controllers.statsController.handle(request, reply));
 
   // =============================================
-  // LOG INGESTION & RETRIEVAL ROUTES (Simplified)
+  // LOG INGESTION & RETRIEVAL ROUTES
   // =============================================
 
   // Ingest logs (with optional idempotency support)
@@ -139,7 +138,7 @@ async function setupRoutes(fastify, controllers, rootLogger) {
   fastify.post('/api/logs', ingestRouteOptions,
     async (request, reply) => await controllers.ingestLogController.handle(request, reply));
 
-  // Retrieve logs by app_id (no authentication for now)
+  // Retrieve logs by app_id
   fastify.get('/api/logs/:app_id', {
     schema: {
       params: {
@@ -175,213 +174,6 @@ async function setupRoutes(fastify, controllers, rootLogger) {
       }
     }
   }, async (request, reply) => await controllers.getLogsByAppIdController.handle(request, reply));
-
-  // ============================================
-  // ORGANIZATION & TEAM MANAGEMENT ROUTES (MongoDB Required)
-  // ============================================
-
-  // Only add these routes if the required controllers are available
-  if (controllers.createOrganizationController && controllers.listOrganizationsController &&
-    controllers.createTeamController && controllers.listTeamsController &&
-    controllers.createAppController && controllers.listAppsController &&
-    controllers.getAppController) {
-
-    // Organization routes
-    fastify.post('/api/organizations', {
-      preHandler: authMiddleware,
-      schema: {
-        body: {
-          type: 'object',
-          required: ['org_name'],
-          properties: {
-            org_name: { type: 'string', minLength: 2, maxLength: 100 }
-          }
-        },
-        response: {
-          201: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              organization: { type: 'object' },
-              message: { type: 'string' }
-            }
-          },
-          400: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' },
-              errors: { type: 'array' }
-            }
-          }
-        }
-      }
-    }, async (request, reply) => await controllers.createOrganizationController.handle(request, reply));
-
-    fastify.get('/api/organizations', {
-      preHandler: authMiddleware,
-      schema: {
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              organizations: { type: 'array' },
-              message: { type: 'string' }
-            }
-          }
-        }
-      }
-    }, async (request, reply) => await controllers.listOrganizationsController.handle(request, reply));
-
-    // Team routes
-    fastify.post('/api/teams', {
-      preHandler: authMiddleware,
-      schema: {
-        body: {
-          type: 'object',
-          required: ['team_name', 'org_id'],
-          properties: {
-            team_name: { type: 'string', minLength: 2, maxLength: 100 },
-            org_id: { type: 'string' }
-          }
-        },
-        response: {
-          201: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              team: { type: 'object' },
-              message: { type: 'string' }
-            }
-          },
-          400: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' },
-              errors: { type: 'array' }
-            }
-          }
-        }
-      }
-    }, async (request, reply) => await controllers.createTeamController.handle(request, reply));
-
-    fastify.get('/api/organizations/:org_id/teams', {
-      preHandler: authMiddleware,
-      schema: {
-        params: {
-          type: 'object',
-          required: ['org_id'],
-          properties: {
-            org_id: { type: 'string' }
-          }
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              teams: { type: 'array' },
-              message: { type: 'string' }
-            }
-          }
-        }
-      }
-    }, async (request, reply) => await controllers.listTeamsController.handle(request, reply));
-
-    // App routes
-    fastify.post('/api/apps', {
-      preHandler: authMiddleware,
-      schema: {
-        body: {
-          type: 'object',
-          required: ['app_name', 'org_id'],
-          properties: {
-            app_name: { type: 'string', minLength: 1, maxLength: 100 },
-            org_id: { type: 'string' }
-          }
-        },
-        response: {
-          201: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              app: { type: 'object' },
-              message: { type: 'string' }
-            }
-          },
-          400: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' },
-              errors: { type: 'array' }
-            }
-          }
-        }
-      }
-    }, async (request, reply) => await controllers.createAppController.handle(request, reply));
-
-    fastify.get('/api/organizations/:org_id/apps', {
-      preHandler: authMiddleware,
-      schema: {
-        params: {
-          type: 'object',
-          required: ['org_id'],
-          properties: {
-            org_id: { type: 'string' }
-          }
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              apps: { type: 'array' },
-              count: { type: 'number' },
-              message: { type: 'string' }
-            }
-          }
-        }
-      }
-    }, async (request, reply) => await controllers.listAppsController.handle(request, reply));
-
-    fastify.get('/api/apps/:app_id', {
-      preHandler: authMiddleware,
-      schema: {
-        params: {
-          type: 'object',
-          required: ['app_id'],
-          properties: {
-            app_id: { type: 'string' }
-          }
-        },
-        response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              app: { type: 'object' },
-              message: { type: 'string' }
-            }
-          },
-          403: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' }
-            }
-          }
-        }
-      }
-    }, async (request, reply) => await controllers.getAppController.handle(request, reply));
-  } else {
-    logger.warn('MongoDB-dependent controllers not available, skipping organization/team/app routes');
-  }
 }
 
 module.exports = setupRoutes;
-
-
-

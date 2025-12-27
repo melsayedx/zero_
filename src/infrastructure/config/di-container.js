@@ -1,20 +1,10 @@
 const { createClickHouseClient } = require('../database/clickhouse');
-const mongoDBConnection = require('../database/mongodb');
 const ClickHouseRepository = require('../../interfaces/persistence/clickhouse.repository');
 const RedisLogRepository = require('../../interfaces/persistence/redis-log.repository');
-const UserRepository = require('../../interfaces/persistence/user.repository');
-const AppRepository = require('../../interfaces/persistence/app.repository');
 const IngestLogUseCase = require('../../application/use-cases/logs/ingest-log.use-case');
 const GetLogsByAppIdUseCase = require('../../application/use-cases/logs/get-logs-by-app-id.use-case');
-const RegisterUserUseCase = require('../../application/use-cases/auth/register-user.use-case');
-const LoginUserUseCase = require('../../application/use-cases/auth/login-user.use-case');
-const CreateAppUseCase = require('../../application/use-cases/apps/create-app.use-case');
-const ListUserAppsUseCase = require('../../application/use-cases/apps/list-user-apps.use-case');
-const VerifyAppAccessUseCase = require('../../application/use-cases/apps/verify-app-access.use-case');
 const { IngestLogController, HealthCheckController, GetLogsByAppIdController } = require('../../interfaces/http/controllers');
 const { StatsController } = require('../../interfaces/http/controllers');
-const { RegisterController, LoginController, MeController } = require('../../interfaces/http/auth.controllers');
-const { CreateAppController, ListAppsController, GetAppController } = require('../../interfaces/http/app.controllers');
 const { IngestLogsHandler, HealthCheckHandler, GetLogsByAppIdHandler } = require('../../interfaces/grpc/handlers');
 const WorkerValidationStrategy = require('../strategies/worker-validation.strategy');
 const LogProcessorThreadManager = require('../workers/log-processor-thread-manager');
@@ -27,6 +17,7 @@ const { getRedisClient, closeRedisConnection, redisConfig } = require('../databa
 const RedisIdempotencyStore = require('../idempotency/redis-idempotency.store');
 const { LoggerFactory } = require('../logging');
 
+
 /**
  * @typedef {Object} DIContainerInstances
  * @property {import('../database/clickhouse').ClickHouseClient} clickhouseClient - ClickHouse database client
@@ -35,30 +26,18 @@ const { LoggerFactory } = require('../logging');
  * @property {ClickHouseRepository} clickhouseRepository - ClickHouse repository implementation
  * @property {RedisLogRepository} redisLogRepository - Redis repository implementation
  * @property {RedisLogRepository} logRepository - Default log repository (Redis for ingestion)
- * @property {UserRepository} [userRepository] - User repository (MongoDB dependent)
- * @property {AppRepository} [appRepository] - App repository (MongoDB dependent)
  * @property {IngestLogUseCase} ingestLogUseCase - Log ingestion use case
  * @property {GetLogsByAppIdUseCase} getLogsByAppIdUseCase - Log retrieval use case
- * @property {RegisterUserUseCase} [registerUserUseCase] - User registration use case
- * @property {LoginUserUseCase} [loginUserUseCase] - User login use case
- * @property {CreateAppUseCase} [createAppUseCase] - App creation use case
- * @property {ListUserAppsUseCase} [listUserAppsUseCase] - App listing use case
- * @property {VerifyAppAccessUseCase} [verifyAppAccessUseCase] - App access verification use case
  * @property {LogIngestionService} logIngestionService - Log ingestion service with coalescing and batching
  * @property {IngestLogController} ingestLogController - Log ingestion HTTP controller
  * @property {HealthCheckController} healthCheckController - Health check HTTP controller
  * @property {GetLogsByAppIdController} getLogsByAppIdController - Log retrieval HTTP controller
  * @property {StatsController} statsController - Statistics HTTP controller
- * @property {RegisterController} [registerController] - User registration HTTP controller
- * @property {LoginController} [loginController] - User login HTTP controller
- * @property {MeController} [meController] - User profile HTTP controller
- * @property {CreateAppController} [createAppController] - App creation HTTP controller
- * @property {ListAppsController} [listAppsController] - App listing HTTP controller
- * @property {GetAppController} [getAppController] - App retrieval HTTP controller
  * @property {IngestLogsHandler} [ingestLogsHandler] - Log ingestion gRPC handler
  * @property {HealthCheckHandler} [healthCheckHandler] - Health check gRPC handler
  * @property {GetLogsByAppIdHandler} [getLogsByAppIdHandler] - Log retrieval gRPC handler
  */
+
 
 /**
  * Dependency Injection Container - Centralized dependency management for the logging platform
@@ -390,9 +369,6 @@ class DIContainer {
     this.logger.debug('Cleaning up infrastructure...');
     if (this.instances.clickhouseClient) {
       await this.instances.clickhouseClient.close();
-    }
-    if (this.instances.mongoDBConnection) {
-      await this.instances.mongoDBConnection.disconnect();
     }
     await closeRedisConnection();
   }
