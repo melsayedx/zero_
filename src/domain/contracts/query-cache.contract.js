@@ -1,4 +1,3 @@
-/** Interface for cache implementations. */
 class QueryCacheContract {
     /**
      * Retrieves cached value.
@@ -10,7 +9,7 @@ class QueryCacheContract {
     }
 
     /**
-     * Stores value in cache.
+     * Sets cached value.
      * @param {string} key - Cache key.
      * @param {*} value - Value.
      * @returns {Promise<void>}
@@ -20,7 +19,7 @@ class QueryCacheContract {
     }
 
     /**
-     * Clears all values.
+     * Clears all cached values.
      * @returns {Promise<void>}
      */
     async clear() {

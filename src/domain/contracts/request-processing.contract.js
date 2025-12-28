@@ -1,4 +1,3 @@
-/** Interface for request processors. */
 class RequestProcessingPort {
   /**
    * Adds request to processor.
@@ -9,12 +8,10 @@ class RequestProcessingPort {
     throw new Error('Method not implemented');
   }
 
-  /** Flushes pending requests. */
   async forceFlush() {
     throw new Error('Method not implemented');
   }
 
-  /** Returns statistics. */
   getStats() {
     throw new Error('Method not implemented');
   }

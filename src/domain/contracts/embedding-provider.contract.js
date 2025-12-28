@@ -25,12 +25,10 @@ class EmbeddingProviderContract {
         throw new Error('getName() must be implemented by subclass');
     }
 
-    /** Initializes the provider. */
     async initialize() {
         // Optional: override in subclass
     }
 
-    /** Cleans up resources. */
     async shutdown() {
         // Optional: override in subclass
     }

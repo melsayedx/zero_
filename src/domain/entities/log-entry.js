@@ -15,7 +15,6 @@ class LogEntry {
 
   /**
    * Asynchronously processes a batch of log entries with validation.
-   *
    * @param {Array<Object>} rawLogs - Raw log entries.
    * @param {Object} [options] - Processing options.
    * @param {number} [options.batchSize=10000] - Sub-batch size.
@@ -56,7 +55,6 @@ class LogEntry {
 
   /**
    * Validates and normalizes a single log entry.
-   *
    * @param {Object} data - Raw log data.
    * @returns {Object} Normalized primitive values.
    * @throws {Error} If validation fails.
@@ -80,10 +78,10 @@ class LogEntry {
     LogEntry._validateStringField('environment', data.environment, LogEntry.CONSTRAINTS.environment);
     LogEntry._validateStringField('user_id', data.user_id, LogEntry.CONSTRAINTS.user_id);
 
-    const appId = AppId.create(data.app_id);
+    const appId = new AppId(data.app_id);
     const level = LogLevel.get(data.level);
-    const metadata = Metadata.create(data.metadata ?? {});
-    const traceId = TraceId.create(data.trace_id);
+    const metadata = new Metadata(data.metadata ?? {});
+    const traceId = new TraceId(data.trace_id);
 
     // Return camelCase (persistence handles snake_case).
     return {
@@ -101,7 +99,6 @@ class LogEntry {
 
   /**
    * Validates string length and type constraints.
-   *
    * @param {string} fieldName - Field name.
    * @param {*} value - Field value.
    * @param {Object} constraints - Validation rules.

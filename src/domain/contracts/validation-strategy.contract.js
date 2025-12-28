@@ -1,8 +1,6 @@
-/** Abstract contract for log validation strategies. */
 class ValidationStrategyContract {
     /**
      * Validates and normalizes log batch.
-     *
      * @param {Object[]} logsData - Raw logs.
      * @returns {Promise<{validEntries: Object[], errors: Object[]}>} Validation results.
      * @throws {Error} If failure.

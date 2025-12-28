@@ -17,7 +17,6 @@ class LogLevel {
 
   /**
    * Private constructor.
-   *
    * @param {symbol} secret - Access token.
    * @param {string} normalizedValue - Log level.
    * @throws {Error} If called externally.
@@ -62,18 +61,6 @@ class LogLevel {
       throw new Error(`Invalid log level: '${value}'. Must be string and one of: ${LogLevel.#VALID_LEVELS.join(', ')}`);
     }
     return instance;
-  }
-
-  static isValid(value) {
-    return typeof value === 'string' && LogLevel.#VALID_LEVELS_SET.has(LogLevel.#normalizeValue(value));
-  }
-
-  toString() {
-    return this.value;
-  }
-
-  equals(other) {
-    return other instanceof LogLevel && this.value === other.value;
   }
 
   /**

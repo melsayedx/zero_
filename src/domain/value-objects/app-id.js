@@ -21,28 +21,6 @@ class AppId {
     Object.freeze(this);
   }
 
-  /**
-   * Factory method for creating AppId.
-   *
-   * @param {string} value - App ID string.
-   * @returns {AppId} New instance.
-   */
-  static create(value) {
-    return new AppId(value);
-  }
-
-  toString() {
-    return this.value;
-  }
-
-  valueOf() {
-    return this.value;
-  }
-
-  equals(other) {
-    return other instanceof AppId && this.value === other.value;
-  }
-
   toJSON() {
     return this.value;
   }

@@ -4,7 +4,6 @@ class Metadata {
 
   /**
    * Creates new Metadata.
-   *
    * @param {Object} [metadata={}] - Metadata object.
    * @throws {Error} If invalid type.
    */
@@ -21,15 +20,7 @@ class Metadata {
     // Object not frozen to allow lazy caching
   }
 
-  /**
-   * Factory method for creating Metadata and it's on all other value objects for consistency.
-   *
-   * @param {Object} [metadata={}] - Metadata object.
-   * @returns {Metadata} New instance.
-   */
-  static create(metadata = {}) {
-    return new Metadata(metadata);
-  }
+
 
   /**
    * Returns cached JSON string.
@@ -63,44 +54,10 @@ class Metadata {
     return this.object;
   }
 
-  isEmpty() {
-    return Object.keys(this.object).length === 0;
-  }
-
-  getSize() {
-    // Lazy compute.
-    if (this._sizeBytes === null) {
-      // Access string getter to compute.
-      const _ = this.string;
-    }
-    return this._sizeBytes;
-  }
-
-  toString() {
-    return this.string;
-  }
-
   toJSON() {
     return this.object;
   }
 
-  equals(other) {
-    if (!(other instanceof Metadata)) {
-      return false;
-    }
-
-    // Fast path: cached strings.
-    if (this._stringified !== null && other._stringified !== null) {
-      return this._stringified === other._stringified;
-    }
-
-    // Fallback: full comparison.
-    try {
-      return this.string === other.string;
-    } catch {
-      return false;
-    }
-  }
 }
 
 module.exports = Metadata;

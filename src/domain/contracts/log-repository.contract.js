@@ -2,7 +2,6 @@
 class LogRepositoryContract {
   /**
    * Saves logs in batch.
-   *
    * @param {LogEntry[]} logEntries - Validated logs.
    * @returns {Promise<Object>} Operation result.
    * @throws {Error} If batch fails.
@@ -13,7 +12,6 @@ class LogRepositoryContract {
 
   /**
    * Finds logs with pagination.
-   *
    * @param {Object} options - Query options.
    * @param {Object} [options.filter] - Filters.
    * @param {number} [options.limit] - Limit.
@@ -27,7 +25,6 @@ class LogRepositoryContract {
 
   /**
    * Returns performance stats.
-   *
    * @returns {Promise<Object>} Metrics (queue length, throughput).
    */
   async getStats() {
@@ -36,7 +33,6 @@ class LogRepositoryContract {
 
   /**
    * Performs health check.
-   *
    * @returns {Promise<Object>} Health status.
    */
   async healthCheck() {

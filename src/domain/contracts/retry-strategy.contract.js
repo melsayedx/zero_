@@ -1,4 +1,3 @@
-/** Contract for retry strategies. */
 class RetryStrategyContract {
   /**
    * Queues operation for retry.
@@ -19,18 +18,10 @@ class RetryStrategyContract {
     throw new Error('processRetries must be implemented by subclass');
   }
 
-  /**
-   * Returns queue statistics.
-   * @returns {Promise<Object>} Stats.
-   */
   async getStats() {
     throw new Error('getStats must be implemented by subclass');
   }
 
-  /**
-   * Cleans up resources.
-   * @returns {Promise<void>}
-   */
   async shutdown() {
     throw new Error('shutdown must be implemented by subclass');
   }

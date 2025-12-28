@@ -1,7 +1,8 @@
 /** Abstract logger contract (Null Object Pattern). */
 class LoggerContract {
+
     /**
-     * Logs trace message.
+     * Logs message at specific severity level (trace, debug, info, warn).
      * @param {string} message - Message.
      * @param {Object} [context] - Context data.
      */
@@ -9,47 +10,27 @@ class LoggerContract {
         throw new Error('Method not implemented: trace()');
     }
 
-    /**
-     * Logs debug message.
-     * @param {string} message - Message.
-     * @param {Object} [context] - Context data.
-     */
     debug(message, context = {}) {
         throw new Error('Method not implemented: debug()');
     }
 
-    /**
-     * Logs info message.
-     * @param {string} message - Message.
-     * @param {Object} [context] - Context data.
-     */
     info(message, context = {}) {
         throw new Error('Method not implemented: info()');
     }
 
-    /**
-     * Logs warning message.
-     * @param {string} message - Message.
-     * @param {Object} [context] - Context data.
-     */
     warn(message, context = {}) {
         throw new Error('Method not implemented: warn()');
     }
 
     /**
-     * Logs error message.
+     * Logs high-severity message (error, fatal).
      * @param {string} message - Message.
-     * @param {Object|Error} [context] - Context or Error.
+     * @param {Object|Error} [context] - Context or Error object.
      */
     error(message, context = {}) {
         throw new Error('Method not implemented: error()');
     }
 
-    /**
-     * Logs fatal message.
-     * @param {string} message - Message.
-     * @param {Object|Error} [context] - Context or Error.
-     */
     fatal(message, context = {}) {
         throw new Error('Method not implemented: fatal()');
     }
