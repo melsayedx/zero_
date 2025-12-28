@@ -39,13 +39,9 @@ class RedisIdempotencyStore extends IdempotencyContract {
     constructor(redisClient, options = {}) {
         super();
 
-        if (!redisClient) {
-            throw new Error('Redis client is required for RedisIdempotencyStore');
-        }
-
         this.redis = redisClient;
-        this.ttl = options.ttl || 86400; // 24 hours default
-        this.prefix = options.prefix || 'idempotency';
+        this.ttl = options.ttl;
+        this.prefix = options.prefix;
         this.logger = options.logger;
     }
 
@@ -91,36 +87,41 @@ class RedisIdempotencyStore extends IdempotencyContract {
     /**
      * Store a response for the given idempotency key.
      *
-     * Uses SET NX EX for atomic check-and-set with expiration.
-     * If the key already exists, this operation does nothing (NX semantics).
-     *
-     * @param {string} key - The idempotency key from the request header/metadata
+     * @param {string} key - The idempotency key
      * @param {Object} response - The response object to cache
-     * @param {number} [ttlSeconds] - Time-to-live in seconds (defaults to instance TTL)
-     * @returns {Promise<boolean>} True if the key was set (new), false if it already existed
+     * @param {number} [ttlSeconds] - TTL in seconds (defaults to instance TTL)
+     * @param {Object} [options] - Options
+     * @param {boolean} [options.force=false] - If true, overwrites existing key (no NX)
+     * @returns {Promise<boolean>} True if set, false if key existed (when force=false) or on error
      */
-    async set(key, response, ttlSeconds) {
+    async set(key, response, ttlSeconds, options = {}) {
         if (!key || typeof key !== 'string') {
             return false;
         }
 
         const effectiveTtl = ttlSeconds || this.ttl;
+        const force = options.force || false;
 
         try {
             const redisKey = this._buildKey(key);
             const serialized = JSON.stringify(response);
 
-            // SET key value EX ttl NX
-            // NX: Only set if key does not exist
-            // EX: Set expiration in seconds
-            const result = await this.redis.set(redisKey, serialized, 'EX', effectiveTtl, 'NX');
+            let result;
+            if (force) {
+                // Always overwrite
+                await this.redis.set(redisKey, serialized, 'EX', effectiveTtl);
+                result = 'OK';
+            } else {
+                // SET NX: Only set if key does not exist
+                result = await this.redis.set(redisKey, serialized, 'EX', effectiveTtl, 'NX');
+            }
 
             const wasSet = result === 'OK';
-            this.logger.debug(wasSet ? 'Cache SET' : 'Cache EXISTS', { key });
+            this.logger.debug(wasSet ? (force ? 'Cache FORCE SET' : 'Cache SET') : 'Cache EXISTS', { key });
             return wasSet;
         } catch (error) {
             this.logger.error('Error setting cached response', { error: error.message });
-            return false; // Fail open - don't prevent request processing
+            return false;
         }
     }
 

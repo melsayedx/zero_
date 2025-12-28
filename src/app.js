@@ -3,8 +3,8 @@ const fastify = require('fastify');
 const DIContainer = require('./infrastructure/config/di-container');
 const setupRoutes = require('./interfaces/http/routes');
 const { setupGrpcServer, shutdownGrpcServer } = require('./interfaces/grpc/server');
-const createContentParserMiddleware = require('./interfaces/middleware/content-parser.middleware');
-const logsOpenApiConfig = require('./infrastructure/openapi/logs-openapi');
+const createContentParserPlugin = require('./interfaces/plugins/content-parser.plugin');
+const logsOpenApiConfig = require('./interfaces/http/schemas/logs-openapi');
 const cluster = require('cluster');
 const fs = require('fs');
 const path = require('path');
@@ -28,12 +28,12 @@ async function createApp(options = {}) {
   const enableHttp2 = process.env.ENABLE_HTTP2 === 'true';
   const fastifyOptions = {
     logger: false,
-    bodyLimit: 10485760, // 10MB limit (same as Express)
+    bodyLimit: 10485760,
     requestIdHeader: 'x-request-id',
     ajv: {
       customOptions: {
         strict: false,
-        keywords: ['example'] // Explicitly allow 'example' keyword
+        keywords: ['example']
       }
     }
   };
@@ -87,7 +87,7 @@ async function createApp(options = {}) {
   // Content parser middleware - handles both JSON and Protocol Buffer formats
   // Pass validation service for worker-based protobuf parsing
   const validationService = container.get('validationService');
-  await app.register(createContentParserMiddleware(validationService, logger));
+  await app.register(createContentParserPlugin(validationService, logger.child({ component: 'ContentParser' })));
 
   // Request logging hook
   // app.addHook('onRequest', (request, reply, done) => {

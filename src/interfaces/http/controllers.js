@@ -1,35 +1,13 @@
-/**
- * HTTP Controllers
- * Handle HTTP requests and responses
- */
-const { LoggerFactory } = require('../../infrastructure/logging');
-
-const logger = LoggerFactory.named('HTTPController');
-
-/**
- * Controller for ingesting log entries
- *
- * This is a PRIMARY ADAPTER that depends on the IngestLogPort (input port)
- */
 class IngestLogController {
-  constructor(requestManager) {
+  constructor(requestManager, logger) {
     this.requestManager = requestManager;
+    this.logger = logger;
   }
 
-  /**
-   * Handle POST /api/logs request
-   * Supports JSON and Protocol Buffer formats
-   *
-   * @param {FastifyRequest} request - Fastify request
-   * @param {FastifyReply} reply - Fastify reply
-   */
   async handle(request, reply) {
     try {
       let logData = request.body;
-
-      if (!Array.isArray(logData)) {
-        logData = [logData];
-      }
+      logData = !Array.isArray(logData) ? [logData] : logData;
 
       const result = await this.requestManager.add(logData);
 
@@ -51,7 +29,7 @@ class IngestLogController {
         });
       }
     } catch (error) {
-      logger.error('IngestLogController error', { error: error.message });
+      this.logger.error('IngestLogController error', { error: error.message });
       return reply.code(500).send({
         success: false,
         message: 'Internal server error',
@@ -61,9 +39,6 @@ class IngestLogController {
   }
 }
 
-/**
- * Simple health check controller
- */
 class HealthCheckController {
   constructor(logRepository) {
     this.logRepository = logRepository;
@@ -108,39 +83,22 @@ class HealthCheckController {
   }
 }
 
-/**
- * Controller for retrieving logs
- * 
- * This is a PRIMARY ADAPTER that depends on the LogRetrievalUseCase
- */
 class LogRetrievalController {
   constructor(logRetrievalUseCase) {
     if (!logRetrievalUseCase) {
       throw new Error('LogRetrievalUseCase is required');
     }
 
-    // Validate that the use case implements the execute method
-    if (typeof logRetrievalUseCase.execute !== 'function') {
-      throw new Error('LogRetrievalUseCase must implement the execute() method');
-    }
-
     this.logRetrievalUseCase = logRetrievalUseCase;
   }
 
-  /**
-   * Handle GET /api/logs/:app_id request
-   * @param {FastifyRequest} request - Fastify request
-   * @param {FastifyReply} reply - Fastify reply
-   */
   async handle(request, reply) {
     try {
       const { app_id } = request.params;
       const limit = parseInt(request.query.limit) || 1000;
 
-      // Execute use case
       const queryResult = await this.logRetrievalUseCase.execute(app_id, limit);
 
-      // Return successful query result
       return reply.code(200).send({
         success: true,
         message: `Retrieved ${queryResult.count} log entries for app_id: ${app_id}`,
@@ -148,7 +106,6 @@ class LogRetrievalController {
       });
 
     } catch (error) {
-      // Handle validation and business logic errors
       if (error.message.includes('app_id') || error.message.includes('Limit')) {
         return reply.code(400).send({
           success: false,
@@ -157,7 +114,6 @@ class LogRetrievalController {
         });
       }
 
-      // Handle internal errors
       return reply.code(500).send({
         success: false,
         message: 'Internal server error',
@@ -167,33 +123,26 @@ class LogRetrievalController {
   }
 }
 
-/**
- * Controller for retrieving batch buffer and system stats
- */
 class StatsController {
-  constructor(logRepository, optimizedIngestService = null, validationService = null, requestManager = null) {
+  constructor(logRepository, logIngestionService = null, validationService = null, requestManager = null) {
     this.logRepository = logRepository;
-    this.optimizedIngestService = optimizedIngestService;
+    this.logIngestionService = logIngestionService;
     this.validationService = validationService;
     this.requestManager = requestManager;
   }
 
   async handle(request, reply) {
     try {
-      // Get ClickHouse stats and buffer metrics
       const stats = await this.logRepository.getStats();
 
-      // Add optimized ingest service stats
-      if (this.optimizedIngestService) {
-        stats.optimizations = this.optimizedIngestService.getStats();
+      if (this.logIngestionService) {
+        stats.optimizations = this.logIngestionService.getStats();
 
-        // Add coalescer stats from request manager if available
         if (this.requestManager) {
           stats.optimizations.coalescer = this.requestManager.getStats();
         }
       }
 
-      // Add validation service stats
       if (this.validationService) {
         stats.workerPool = this.validationService.getStats();
       }
@@ -212,22 +161,12 @@ class StatsController {
   }
 }
 
-/**
- * Controller for semantic log search using natural language queries
- */
 class SemanticSearchController {
-  constructor(semanticSearchUseCase) {
-    if (!semanticSearchUseCase) {
-      throw new Error('SemanticSearchUseCase is required');
-    }
+  constructor(semanticSearchUseCase, logger) {
     this.semanticSearchUseCase = semanticSearchUseCase;
+    this.logger = logger;
   }
 
-  /**
-   * Handle POST /api/logs/search request
-   * @param {FastifyRequest} request - Fastify request
-   * @param {FastifyReply} reply - Fastify reply
-   */
   async handle(request, reply) {
     try {
       const { query, app_id, limit = 20, level, time_range } = request.body;
@@ -251,8 +190,8 @@ class SemanticSearchController {
       if (!result.success) {
         return reply.code(400).send({
           success: false,
-          message: result.error,
-          logs: []
+          message: 'Search request failed',
+          error: result.error
         });
       }
 
@@ -267,7 +206,7 @@ class SemanticSearchController {
       });
 
     } catch (error) {
-      logger.error('SemanticSearchController error', { error: error.message });
+      this.logger.error('SemanticSearchController error', { error: error.message });
       return reply.code(500).send({
         success: false,
         message: 'Semantic search failed',

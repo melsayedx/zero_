@@ -1,14 +1,9 @@
 const IngestResult = require('../use-cases/ingest-result');
 
 class LogIngestionService {
-
-  /**
-   * @param {IngestLogUseCase} ingestUseCase
-   * @param {Object} [options={}] - Configuration options
-   */
-  constructor(ingestUseCase, options = {}) {
+  constructor(ingestUseCase, logger) {
     this.ingestUseCase = ingestUseCase;
-    this.logger = options.logger;
+    this.logger = logger;
 
     this.metrics = {
       totalRequests: 0,
@@ -156,3 +151,4 @@ class LogIngestionService {
 }
 
 module.exports = LogIngestionService;
+

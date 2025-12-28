@@ -1,40 +1,125 @@
-const { createIdempotencyMiddleware, createIdempotencyHook } = require('../middleware/idempotency.middleware');
-const logsOpenApiConfig = require('../../infrastructure/openapi/logs-openapi');
+const { createIdempotencyCheck, createIdempotencyHook } = require('../hooks/idempotency.hooks');
+const logsOpenApiConfig = require('./schemas/logs-openapi');
 
 
 /**
- * Setup HTTP routes for Fastify
- * @param {FastifyInstance} fastify - Fastify app instance
- * @param {Object} controllers - Object containing controller instances
- * @param {Object} rootLogger - Application logger instance
+ * Setups HTTP routes.
+ * @param {FastifyInstance} fastify - App instance.
+ * @param {Object} controllers - Controllers.
+ * @param {Object} rootLogger - Logger.
  */
 async function setupRoutes(fastify, controllers, rootLogger) {
   const logger = rootLogger.child({ component: 'Routes' });
 
-  // Redirect root to Swagger UI
+  // Redirect root to OpenAPI UI
   fastify.get('/', async (request, reply) => {
     return reply.code(308).redirect('/api/docs');
   });
 
-  // Create idempotency middleware if store is available
-  let idempotencyMiddleware = null;
-  let idempotencyHook = null;
-  if (controllers.idempotencyStore) {
-    idempotencyMiddleware = createIdempotencyMiddleware(controllers.idempotencyStore, {
-      enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true',
-      logger: rootLogger
-    });
-    idempotencyHook = createIdempotencyHook(controllers.idempotencyStore, {
-      enableLogging: process.env.ENABLE_IDEMPOTENCY_LOGGING === 'true',
-      logger: rootLogger
-    });
-  }
+  const idempotencyCheck = createIdempotencyCheck(
+    controllers.idempotencyStore,
+    rootLogger.child({ component: 'IdempotencyCheck' }),
+    {
+      enforce: true
+    }
+  );
 
-  // =================================
-  // CORE ROUTES
-  // =================================
+  const idempotencyHook = createIdempotencyHook(
+    controllers.idempotencyStore,
+    rootLogger.child({ component: 'IdempotencyHook' })
+  );
 
-  // Health check endpoint
+  const ingestRouteOptions = {
+    schema: {
+      body: {}, // Validation is disabled for performance (handled by ValidationService)
+      response: {
+        202: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            stats: {
+              type: 'object',
+              properties: {
+                accepted: { type: 'number' },
+                rejected: { type: 'number' },
+                throughput: { type: 'string' }
+              }
+            }
+          }
+        },
+        400: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            errors: { type: 'array' }
+          }
+        }
+      }
+    },
+    preHandler: idempotencyCheck,
+    onSend: idempotencyHook
+  };
+
+  fastify.post('/api/logs', ingestRouteOptions,
+    async (request, reply) => await controllers.ingestLogController.handle(request, reply));
+
+  const semanticSearchRouteOptions = {
+    schema: {
+      summary: 'Semantic Search',
+      description: 'Search logs using natural language queries powered by vector embeddings',
+      tags: ['logs'],
+      body: logsOpenApiConfig.openapi.components.schemas.SemanticSearchRequest,
+      response: {
+        200: {
+          description: 'Successful search results',
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean',
+              example: true
+            },
+            message: {
+              type: 'string',
+              example: 'Found 15 similar logs'
+            },
+            data: {
+              type: 'object',
+              properties: {
+                query: {
+                  type: 'string',
+                  description: 'The processed search query'
+                },
+                logs: {
+                  type: 'array',
+                  items: logsOpenApiConfig.openapi.components.schemas.LogEntry,
+                  description: 'List of logs matching the semantic query'
+                },
+                metadata: {
+                  type: 'object',
+                  description: 'Search metadata (execution time, model used, etc.)'
+                }
+              }
+            }
+          }
+        },
+        400: {
+          description: 'Invalid request',
+          ...logsOpenApiConfig.openapi.components.schemas.BadRequestResponse
+        },
+        500: {
+          description: 'Server error',
+          ...logsOpenApiConfig.openapi.components.schemas.ErrorResponse
+        }
+      }
+    },
+    preHandler: idempotencyCheck,
+    onSend: idempotencyHook
+  };
+
+  fastify.post('/api/logs/search', semanticSearchRouteOptions, async (request, reply) => await controllers.semanticSearchController.handle(request, reply));
+
   fastify.get('/health', {
     schema: {
       response: {
@@ -73,7 +158,6 @@ async function setupRoutes(fastify, controllers, rootLogger) {
     }
   }, async (request, reply) => await controllers.healthCheckController.handle(request, reply));
 
-  // Stats endpoint (includes batch buffer metrics)
   fastify.get('/api/stats', {
     schema: {
       response: {
@@ -96,55 +180,6 @@ async function setupRoutes(fastify, controllers, rootLogger) {
     }
   }, async (request, reply) => await controllers.statsController.handle(request, reply));
 
-  // =============================================
-  // LOG INGESTION & RETRIEVAL ROUTES
-  // =============================================
-
-  // Ingest logs (with optional idempotency support)
-  // Send Idempotency-Key header to prevent duplicate processing
-  const ingestRouteOptions = {
-    schema: {
-      body: {}, // Validation temporarily disabled for performance (handled by ValidationService)
-      response: {
-        202: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            message: { type: 'string' },
-            stats: {
-              type: 'object',
-              properties: {
-                accepted: { type: 'number' },
-                rejected: { type: 'number' },
-                throughput: { type: 'string' },
-                validationStrategy: { type: 'string' },
-                workerThreads: { type: 'boolean' }
-              }
-            }
-          }
-        },
-        400: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            message: { type: 'string' },
-            errors: { type: 'array' }
-          }
-        }
-      }
-    }
-  };
-
-  // Add idempotency handlers if available
-  if (idempotencyMiddleware) {
-    ingestRouteOptions.preHandler = idempotencyMiddleware;
-    ingestRouteOptions.onSend = idempotencyHook;
-  }
-
-  fastify.post('/api/logs', ingestRouteOptions,
-    async (request, reply) => await controllers.ingestLogController.handle(request, reply));
-
-  // Retrieve logs by app_id
   fastify.get('/api/logs/:app_id', {
     schema: {
       params: {
@@ -179,67 +214,9 @@ async function setupRoutes(fastify, controllers, rootLogger) {
         }
       }
     }
-  }, async (request, reply) => await controllers.getLogsByAppIdController.handle(request, reply));
+  }, async (request, reply) => await controllers.logRetrievalController.handle(request, reply));
 
-  // =============================================
-  // SEMANTIC SEARCH ROUTE
-  // =============================================
-
-  // Semantic search requires the semanticSearchController to be configured
-  if (controllers.semanticSearchController) {
-    fastify.post('/api/logs/search', {
-      schema: {
-        summary: 'Semantic Search',
-        description: 'Search logs using natural language queries powered by vector embeddings',
-        tags: ['logs'],
-        body: logsOpenApiConfig.openapi.components.schemas.SemanticSearchRequest,
-        response: {
-          200: {
-            description: 'Successful search results',
-            type: 'object',
-            properties: {
-              success: {
-                type: 'boolean',
-                example: true
-              },
-              message: {
-                type: 'string',
-                example: 'Found 15 similar logs'
-              },
-              data: {
-                type: 'object',
-                properties: {
-                  query: {
-                    type: 'string',
-                    description: 'The processed search query'
-                  },
-                  logs: {
-                    type: 'array',
-                    items: logsOpenApiConfig.openapi.components.schemas.LogEntry,
-                    description: 'List of logs matching the semantic query'
-                  },
-                  metadata: {
-                    type: 'object',
-                    description: 'Search metadata (execution time, model used, etc.)'
-                  }
-                }
-              }
-            }
-          },
-          400: {
-            description: 'Invalid request',
-            ...logsOpenApiConfig.openapi.components.schemas.BadRequestResponse
-          },
-          500: {
-            description: 'Server error',
-            ...logsOpenApiConfig.openapi.components.schemas.ErrorResponse
-          }
-        }
-      }
-    }, async (request, reply) => await controllers.semanticSearchController.handle(request, reply));
-
-    logger.info('Semantic search route enabled at POST /api/logs/search');
-  }
 }
 
 module.exports = setupRoutes;
+

@@ -33,7 +33,7 @@ const { LoggerFactory } = require('../logging');
  * @property {LogIngestionService} logIngestionService - Log ingestion service with coalescing and batching
  * @property {IngestLogController} ingestLogController - Log ingestion HTTP controller
  * @property {HealthCheckController} healthCheckController - Health check HTTP controller
- * @property {LogRetrievalController} getLogsByAppIdController - Log retrieval HTTP controller
+ * @property {LogRetrievalController} logRetrievalController - Log retrieval HTTP controller
  * @property {StatsController} statsController - Statistics HTTP controller
  * @property {IngestLogsHandler} [ingestLogsHandler] - Log ingestion gRPC handler
  * @property {HealthCheckHandler} [healthCheckHandler] - Health check gRPC handler
@@ -221,9 +221,7 @@ class DIContainer {
     // 1. Initialize LogIngestionService (Pure Application Service) - Dependencies: UseCases
     this.instances.logIngestionService = new LogIngestionService(
       this.instances.ingestLogUseCase,
-      {
-        logger: this.instances.logger.child({ component: 'LogIngestionService' })
-      }
+      this.instances.logger.child({ component: 'LogIngestionService' })
     );
 
     // 2. Initialize RequestManager (Infrastructure Layer) - Dependencies: Application Service
@@ -238,11 +236,6 @@ class DIContainer {
       }
     );
 
-
-
-    this.logger.info('Application services initialized');
-
-
     this.logger.info('Application services initialized');
   }
 
@@ -250,7 +243,8 @@ class DIContainer {
     this.logger.info('Phase 5: Initializing interface adapters...');
 
     this.instances.ingestLogController = new IngestLogController(
-      this.instances.requestManager
+      this.instances.requestManager,
+      this.instances.logger.child({ component: 'IngestLogController' })
     );
 
 
@@ -258,15 +252,15 @@ class DIContainer {
       this.instances.logRepository
     );
 
-    this.instances.getLogsByAppIdController = new LogRetrievalController(
+    this.instances.logRetrievalController = new LogRetrievalController(
       this.instances.logRetrievalUseCase
     );
 
     this.instances.statsController = new StatsController(
       this.instances.logRepository,
-      this.instances.logIngestionService, // Service metrics
+      this.instances.logIngestionService,
       this.instances.validationService,
-      this.instances.requestManager // Buffer/Coalescer metrics
+      this.instances.requestManager
     );
 
     // Initialize gRPC handlers
@@ -288,7 +282,8 @@ class DIContainer {
     // Semantic search controller (optional - requires ENABLE_VECTOR_SEARCH)
     if (this.instances.semanticSearchUseCase) {
       this.instances.semanticSearchController = new SemanticSearchController(
-        this.instances.semanticSearchUseCase
+        this.instances.semanticSearchUseCase,
+        this.instances.logger.child({ component: 'SemanticSearchController' })
       );
       this.logger.info('Semantic search controller initialized');
     }
@@ -346,7 +341,7 @@ class DIContainer {
     const controllers = {
       ingestLogController: this.instances.ingestLogController,
       healthCheckController: this.instances.healthCheckController,
-      getLogsByAppIdController: this.instances.getLogsByAppIdController,
+      logRetrievalController: this.instances.logRetrievalController,
       statsController: this.instances.statsController,
       idempotencyStore: this.instances.idempotencyStore,
       semanticSearchController: this.instances.semanticSearchController || null
