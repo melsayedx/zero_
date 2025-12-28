@@ -24,9 +24,10 @@ class LoggerFactory {
      */
     static create(options = {}) {
         try {
-            // Determine mode from options or environment
-            const mode = options.mode;
-            const level = options.level;
+            // Determine mode from options or environment (default to 'info' if neither set)
+            // Note: process.env.LOG_MODE might be undefined if called early in boot cycle
+            const mode = options.mode || process.env.LOG_MODE || 'info';
+            const level = options.level || process.env.LOG_LEVEL || 'info';
 
             // Check for null/disabled modes
             const isDisabled = ['null', 'silent', 'disabled', 'none', 'off'].includes(mode.toLowerCase());
@@ -36,6 +37,9 @@ class LoggerFactory {
             }
 
             let pretty = options.pretty;
+            if (pretty === undefined) {
+                pretty = process.env.LOG_PRETTY === 'true';
+            }
             let metrics = options.metrics || new LoggingMetrics();
 
             return new StructuredLogger({
@@ -45,8 +49,8 @@ class LoggerFactory {
                 context: options.context,
                 timestamps: options.timestamps,
                 metrics,
-                output: options.output,
-                errorOutput: options.errorOutput
+                output: options.output || console.log,
+                errorOutput: options.errorOutput || console.error
             });
 
         } catch (error) {

@@ -12,7 +12,7 @@ const { workerData, parentPort } = require('worker_threads');
 const Redis = require('ioredis');
 
 // Import required classes
-const ClickHouseRepository = require('../../interfaces/persistence/clickhouse.repository');
+const ClickHouseRepository = require('../persistence/clickhouse.repository');
 const RedisRetryStrategy = require('../retry-strategies/redis-retry-strategy');
 const RedisStreamQueue = require('../queues/redis-stream-queue');
 const BatchBuffer = require('../buffers/batch-buffer');

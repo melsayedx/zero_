@@ -1,34 +1,17 @@
 const QueryCacheContract = require('../../domain/contracts/query-cache.contract');
 
 /**
- * In-Memory Query Cache - Fast caching for single-instance deployments.
- *
- * Simple LRU cache implementation using JavaScript Map which maintains
- * insertion order. When the cache is full, the oldest entry is evicted.
- *
- * Best for:
- * - Single-instance deployments
- * - Development environments
- * - Testing scenarios
- *
+ * LRU in-memory query cache for single-instance deployments.
  * @implements {QueryCacheContract}
- *
- * @example
- * ```javascript
- * const cache = new InMemoryQueryCache({ maxSize: 100 });
- * await cache.set('query:1', { data: 'results' });
- * const result = await cache.get('query:1');
- * ```
  */
 class InMemoryQueryCache extends QueryCacheContract {
     /**
-     * Create a new InMemoryQueryCache instance.
-     *
-     * @param {Object} [options={}] - Configuration options
-     * @param {number} [options.maxSize=50] - Maximum number of cached entries
+     * @param {Object} [options] - Config options.
+     * @param {number} [options.maxSize=50] - Max cached entries.
      */
     constructor(options = {}) {
         super();
+
         this.cache = new Map();
         this.maxSize = options.maxSize || 50;
     }

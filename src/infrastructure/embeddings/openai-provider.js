@@ -1,13 +1,5 @@
 /**
- * OpenAI Embedding Provider (Stub)
- * 
- * API-based embedding provider for OpenAI embeddings.
- * Implement when ready to use OpenAI's text-embedding-3-small/large models.
- * 
- * Usage:
- *   const provider = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY });
- *   await provider.initialize();
- *   const embeddings = await provider.embed(['hello world']);
+ * OpenAIProvider - API-based OpenAI embedding provider (text-embedding-3-small/large).
  */
 const EmbeddingProviderContract = require('../../domain/contracts/embedding-provider.contract');
 const { LoggerFactory } = require('../logging');
@@ -18,7 +10,7 @@ class OpenAIProvider extends EmbeddingProviderContract {
         this.apiKey = options.apiKey;
         this.model = options.model || 'text-embedding-3-small';
         this.dimension = options.dimension || 1536; // text-embedding-3-small default
-        this.logger = options.logger || LoggerFactory.named('OpenAIProvider');
+        this.logger = options.logger || LoggerFactory.child({ component: 'OpenAIProvider' });
         this.batchSize = options.batchSize || 100; // OpenAI supports up to 2048
     }
 

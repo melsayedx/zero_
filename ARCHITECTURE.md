@@ -12,16 +12,16 @@ This application follows the **Onion Architecture** pattern, which promotes stri
 │                    (Frameworks & External Systems)                 │
 │                                                                    │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
-│  │   Database   │  │   Workers    │  │   Buffers    │             │
-│  │  Connections │  │   & Cluster  │  │  & Retry     │             │
+│  │   Database   │  │   Workers    │  │ Persistence  │             │
+│  │  Connections │  │   & Cluster  │  │ Repositories │             │
 │  └──────────────┘  └──────────────┘  └──────────────┘             │
 ├────────────────────────────────────────────────────────────────────┤
 │                      LAYER 3: INTERFACES                           │
 │                    (Adapters & Gateways)                           │
 │                                                                    │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐    │
-│  │  HTTP/gRPC      │  │   Persistence   │  │   Middleware    │    │
-│  │  Controllers    │  │   Repositories  │  │   & Parsers     │    │
+│  │  HTTP/gRPC      │  │   Middleware    │  │   Parsers       │    │
+│  │  Controllers    │  │                 │  │                 │    │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘    │
 ├────────────────────────────────────────────────────────────────────┤
 │                      LAYER 2: APPLICATION                          │
@@ -89,12 +89,13 @@ Dependencies flow: INWARD ONLY (toward the center)
 ### Layer 3: Interfaces (Adapters)
 - **HTTP Controllers**: Handle HTTP requests and responses
 - **gRPC Handlers**: Handle gRPC service methods
-- **Persistence Repositories**: Implement domain contracts for data storage
 - **Middleware**: Request processing, authentication, parsing
+- **Parsers**: Protocol buffer and format parsers
 - **Depends on**: Application and Domain layers
 
 ### Layer 4: Infrastructure (outermost)
 - **Database Connections**: ClickHouse, MongoDB, Redis clients
+- **Persistence Repositories**: Implement domain contracts (`ClickHouseRepository`, `RedisLogRepository`)
 - **Workers**: Background job processors
 - **Cluster Management**: Process clustering and worker threads
 - **Buffers**: Batch buffer, buffer pool optimizations
@@ -148,11 +149,6 @@ src/
 │   ├── grpc/                 # gRPC handlers
 │   │   ├── handlers.js
 │   │   └── server.js
-│   ├── persistence/          # Repository implementations
-│   │   ├── clickhouse.repository.js
-│   │   ├── redis-log.repository.js
-│   │   ├── user.repository.js
-│   │   └── app.repository.js
 │   ├── middleware/           # Request processing
 │   │   ├── auth.middleware.js
 │   │   ├── content-parser.middleware.js
@@ -161,6 +157,9 @@ src/
 │       └── protobuf-parser.js
 │
 └── infrastructure/           # Layer 4: Infrastructure (outermost)
+    ├── persistence/          # Repository implementations
+    │   ├── clickhouse.repository.js
+    │   └── redis-log.repository.js
     ├── database/             # Database connections
     │   ├── clickhouse.js
     │   ├── mongodb.js
@@ -210,7 +209,7 @@ src/
    │ - Pure domain logic
    │
    ▼
-5. Interface Layer: Repository Implementation (interfaces/persistence/)
+5. Infrastructure Layer: Repository Implementation (infrastructure/persistence/)
    │ - Implements domain contract
    │ - Translates to storage format
    │
@@ -271,7 +270,7 @@ Integration Tests:
 
 ### Adding a new data source:
 1. Use existing contract or create new one in `domain/contracts/`
-2. Create repository implementation in `interfaces/persistence/`
+2. Create repository implementation in `infrastructure/persistence/`
 3. Add infrastructure setup in `infrastructure/database/`
 4. Wire up in DI container
 5. No changes needed in domain or application layers!

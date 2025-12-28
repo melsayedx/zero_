@@ -1,11 +1,6 @@
 /**
- * Transformers.js Embedding Provider
- * 
- * Local embedding provider using Hugging Face transformers.js
- * Runs sentence-transformers model locally without external API calls.
- * 
- * Model: all-MiniLM-L6-v2 (384 dimensions)
- * First run will download the model (~80MB), then cached locally.
+ * TransformersProvider - Local embedding via Hugging Face transformers.js.
+ * Uses all-MiniLM-L6-v2 (384 dims). First run downloads model (~80MB).
  */
 const EmbeddingProviderContract = require('../../domain/contracts/embedding-provider.contract');
 const { LoggerFactory } = require('../logging');
@@ -16,7 +11,7 @@ class TransformersProvider extends EmbeddingProviderContract {
         this.modelName = options.modelName || 'Xenova/all-MiniLM-L6-v2';
         this.dimension = 384; // all-MiniLM-L6-v2 output dimension
         this.pipeline = null;
-        this.logger = options.logger || LoggerFactory.named('TransformersProvider');
+        this.logger = options.logger || LoggerFactory.child({ component: 'TransformersProvider' });
         this.batchSize = options.batchSize || 32; // Process texts in batches
     }
 

@@ -1,40 +1,25 @@
 const IdempotencyContract = require('../../domain/contracts/idempotency.contract');
 
 /**
- * RedisIdempotencyStore - Redis implementation for idempotency key storage.
- *
- * Uses Redis SET with NX (not exists) and EX (expiration) flags for atomic
- * check-and-set operations. This ensures that only the first request with a
- * given idempotency key is processed, and subsequent requests receive the
- * cached response.
+ * Redis-backed idempotency store using atomic operations.
+ * 
+ * In set method, if key exists, it will not be overwritten
+ * unless force option is set to true. This is to prevent
+ * in-flight requests from doing duplicate work.
  *
  * @example
- * ```javascript
- * const store = new RedisIdempotencyStore(redisClient, { ttl: 86400 });
- *
- * // Check for existing response
- * const cached = await store.get('request-123');
- * if (cached) {
- *   return cached; // Return cached response
- * }
- *
- * // Process request...
- * const response = await processRequest();
- *
- * // Cache response
- * await store.set('request-123', response);
- * return response;
- * ```
+ * const store = new RedisIdempotencyStore(redisClient);
+ * const cached = await store.get('key');
+ * if (!cached) await store.set('key', response);
  */
 class RedisIdempotencyStore extends IdempotencyContract {
     /**
-     * Create a new RedisIdempotencyStore instance.
-     *
-     * @param {Redis} redisClient - Configured ioredis client instance
-     * @param {Object} [options={}] - Configuration options
-     * @param {number} [options.ttl=86400] - Default TTL in seconds (24 hours)
-     * @param {string} [options.prefix='idempotency'] - Redis key prefix
-     * @param {Logger} [options.logger] - Logger instance
+     * Creates a new store instance.
+     * @param {Redis} redisClient - Configured ioredis client.
+     * @param {Object} [options] - Configuration options.
+     * @param {number} [options.ttl=86400] - Default TTL in seconds.
+     * @param {string} [options.prefix='idempotency'] - Key prefix.
+     * @param {Logger} [options.logger] - Logger instance.
      */
     constructor(redisClient, options = {}) {
         super();
@@ -45,23 +30,10 @@ class RedisIdempotencyStore extends IdempotencyContract {
         this.logger = options.logger;
     }
 
-    /**
-     * Build the full Redis key with prefix.
-     *
-     * @private
-     * @param {string} key - The idempotency key
-     * @returns {string} Full Redis key
-     */
     _buildKey(key) {
         return `${this.prefix}:${key}`;
     }
 
-    /**
-     * Retrieve a cached response by idempotency key.
-     *
-     * @param {string} key - The idempotency key from the request header/metadata
-     * @returns {Promise<Object|null>} The cached response object, or null if not found
-     */
     async get(key) {
         if (!key || typeof key !== 'string') {
             return null;
@@ -85,14 +57,13 @@ class RedisIdempotencyStore extends IdempotencyContract {
     }
 
     /**
-     * Store a response for the given idempotency key.
-     *
-     * @param {string} key - The idempotency key
-     * @param {Object} response - The response object to cache
-     * @param {number} [ttlSeconds] - TTL in seconds (defaults to instance TTL)
-     * @param {Object} [options] - Options
-     * @param {boolean} [options.force=false] - If true, overwrites existing key (no NX)
-     * @returns {Promise<boolean>} True if set, false if key existed (when force=false) or on error
+     * Atomically stores response if key doesn't exist.
+     * @param {string} key - Idempotency key.
+     * @param {object} response - Response to cache.
+     * @param {number} [ttlSeconds] - Optional Custom TTL.
+     * @param {object} [options] - Options.
+     * @param {boolean} [options.force=false] - Overwrite existing key.
+     * @returns {Promise<boolean>} True if set, false if existed or error.
      */
     async set(key, response, ttlSeconds, options = {}) {
         if (!key || typeof key !== 'string') {
@@ -108,11 +79,9 @@ class RedisIdempotencyStore extends IdempotencyContract {
 
             let result;
             if (force) {
-                // Always overwrite
                 await this.redis.set(redisKey, serialized, 'EX', effectiveTtl);
                 result = 'OK';
             } else {
-                // SET NX: Only set if key does not exist
                 result = await this.redis.set(redisKey, serialized, 'EX', effectiveTtl, 'NX');
             }
 
@@ -125,12 +94,6 @@ class RedisIdempotencyStore extends IdempotencyContract {
         }
     }
 
-    /**
-     * Delete an idempotency key (for testing/administrative purposes).
-     *
-     * @param {string} key - The idempotency key to delete
-     * @returns {Promise<boolean>} True if the key was deleted, false if it didn't exist
-     */
     async delete(key) {
         if (!key || typeof key !== 'string') {
             return false;
@@ -147,11 +110,6 @@ class RedisIdempotencyStore extends IdempotencyContract {
         }
     }
 
-    /**
-     * Get statistics about idempotency key usage.
-     *
-     * @returns {Promise<Object>} Statistics object
-     */
     async getStats() {
         try {
             // Count keys matching the prefix

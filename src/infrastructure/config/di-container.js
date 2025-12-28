@@ -1,6 +1,6 @@
 const { createClickHouseClient } = require('../database/clickhouse');
-const ClickHouseRepository = require('../../interfaces/persistence/clickhouse.repository');
-const RedisLogRepository = require('../../interfaces/persistence/redis-log.repository');
+const ClickHouseRepository = require('../persistence/clickhouse.repository');
+const RedisLogRepository = require('../persistence/redis-log.repository');
 const IngestLogUseCase = require('../../application/use-cases/ingest-log.use-case');
 const LogRetrievalUseCase = require('../../application/use-cases/log-retrieval.use-case');
 const SemanticSearchUseCase = require('../../application/use-cases/semantic-search.use-case');
