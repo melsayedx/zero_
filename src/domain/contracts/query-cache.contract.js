@@ -1,25 +1,18 @@
-/**
- * Query Cache Contract - Interface for cache implementations.
- *
- * Defines the contract that all cache implementations must follow.
- * Implementations can be in-memory, Redis, Memcached, or any other caching solution.
- *
- * @interface
- */
+/** Interface for cache implementations. */
 class QueryCacheContract {
     /**
-     * Retrieve a cached value by key.
-     * @param {string} key - Cache key
-     * @returns {Promise<*>} Cached value or null if not found
+     * Retrieves cached value.
+     * @param {string} key - Cache key.
+     * @returns {Promise<*>} Value or null.
      */
     async get(key) {
         throw new Error('QueryCacheContract.get() must be implemented');
     }
 
     /**
-     * Store a value in the cache.
-     * @param {string} key - Cache key
-     * @param {*} value - Value to cache
+     * Stores value in cache.
+     * @param {string} key - Cache key.
+     * @param {*} value - Value.
      * @returns {Promise<void>}
      */
     async set(key, value) {
@@ -27,7 +20,7 @@ class QueryCacheContract {
     }
 
     /**
-     * Clear all cached values.
+     * Clears all values.
      * @returns {Promise<void>}
      */
     async clear() {

@@ -22,7 +22,7 @@ class Metadata {
   }
 
   /**
-   * Factory method for creating Metadata.
+   * Factory method for creating Metadata and it's on all other value objects for consistency.
    *
    * @param {Object} [metadata={}] - Metadata object.
    * @returns {Metadata} New instance.

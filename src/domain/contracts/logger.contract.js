@@ -1,90 +1,63 @@
-/**
- * LoggerContract - Abstract interface defining the contract for logging implementations.
- *
- * This contract follows the Null Object Pattern, enabling zero-overhead logging disable
- * by swapping implementations without conditional checks throughout the codebase.
- *
- * Log Levels (in order of severity):
- * - trace: Fine-grained debugging information
- * - debug: Debug information useful during development
- * - info: General informational messages
- * - warn: Warning conditions that should be addressed
- * - error: Error conditions that need attention
- * - fatal: Critical errors that may cause application termination
- *
- * @example
- * ```javascript
- * // Usage with dependency injection
- * class MyService {
- *   constructor(logger) {
- *     this.logger = logger;
- *   }
- *
- *   process(data) {
- *     this.logger.info('Processing data', { count: data.length });
- *   }
- * }
- * ```
- */
+/** Abstract logger contract (Null Object Pattern). */
 class LoggerContract {
     /**
-     * Log a trace-level message.
-     * @param {string} message - The message to log
-     * @param {Object} [context={}] - Additional context data
+     * Logs trace message.
+     * @param {string} message - Message.
+     * @param {Object} [context] - Context data.
      */
     trace(message, context = {}) {
         throw new Error('Method not implemented: trace()');
     }
 
     /**
-     * Log a debug-level message.
-     * @param {string} message - The message to log
-     * @param {Object} [context={}] - Additional context data
+     * Logs debug message.
+     * @param {string} message - Message.
+     * @param {Object} [context] - Context data.
      */
     debug(message, context = {}) {
         throw new Error('Method not implemented: debug()');
     }
 
     /**
-     * Log an info-level message.
-     * @param {string} message - The message to log
-     * @param {Object} [context={}] - Additional context data
+     * Logs info message.
+     * @param {string} message - Message.
+     * @param {Object} [context] - Context data.
      */
     info(message, context = {}) {
         throw new Error('Method not implemented: info()');
     }
 
     /**
-     * Log a warning-level message.
-     * @param {string} message - The message to log
-     * @param {Object} [context={}] - Additional context data
+     * Logs warning message.
+     * @param {string} message - Message.
+     * @param {Object} [context] - Context data.
      */
     warn(message, context = {}) {
         throw new Error('Method not implemented: warn()');
     }
 
     /**
-     * Log an error-level message.
-     * @param {string} message - The message to log
-     * @param {Object|Error} [context={}] - Additional context data or Error object
+     * Logs error message.
+     * @param {string} message - Message.
+     * @param {Object|Error} [context] - Context or Error.
      */
     error(message, context = {}) {
         throw new Error('Method not implemented: error()');
     }
 
     /**
-     * Log a fatal-level message.
-     * @param {string} message - The message to log
-     * @param {Object|Error} [context={}] - Additional context data or Error object
+     * Logs fatal message.
+     * @param {string} message - Message.
+     * @param {Object|Error} [context] - Context or Error.
      */
     fatal(message, context = {}) {
         throw new Error('Method not implemented: fatal()');
     }
 
     /**
-     * Create a child logger with inherited context.
-     * @param {Object} context - Context to merge with parent context
-     * @returns {LoggerContract} A new logger instance with merged context
+     * Creates child logger.
+     * @param {Object} context - Merged context.
+     * @returns {LoggerContract} Child logger.
      */
     child(context) {
         throw new Error('Method not implemented: child()');
