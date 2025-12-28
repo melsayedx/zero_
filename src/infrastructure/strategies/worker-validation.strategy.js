@@ -1,14 +1,7 @@
 /**
- * Validation Service with Worker Thread Support
- *
- * Provides both synchronous and asynchronous validation methods.
- * Automatically chooses the best approach based on batch size and system load.
- * Implements ValidationStrategyContract for use in IngestLogUseCase.
- *
- * Strategies:
- * - Small batches (< 100 logs): Use main thread (no overhead)
- * - Medium batches (100-1000 logs): Use workers for CPU-intensive validation
- * - Large batches (> 1000 logs): Use multiple workers in parallel
+ * WorkerValidationStrategy - Worker thread validation support.
+ * Selects sync, single worker, or parallel workers based on batch size.
+ * Composite Pattern
  */
 
 const WorkerPool = require('../workers/worker-pool');
@@ -40,7 +33,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Validate batch of logs using optimal strategy
+   * Validates a batch using optimal strategy.
+   * @param {Object[]} logsDataArray - Raw log data.
+   * @returns {Promise<Object>} Validation result.
    */
   async validateBatch(logsDataArray) {
     const batchSize = logsDataArray.length;
@@ -63,7 +58,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Synchronous validation (main thread)
+   * Validates synchronously (main thread).
+   * @param {Object[]} logsDataArray - Raw log data.
+   * @returns {Promise<Object>} Validation result.
    */
   async validateBatchSync(logsDataArray) {
     const startTime = Date.now();
@@ -87,7 +84,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Validate with single worker thread
+   * Validates using a single worker thread.
+   * @param {Object[]} logsDataArray - Raw log data.
+   * @returns {Promise<Object>} Validation result.
    */
   async validateBatchWithWorker(logsDataArray) {
     const startTime = Date.now();
@@ -118,7 +117,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Validate large batches using multiple workers in parallel
+   * Validates large batches in parallel.
+   * @param {Object[]} logsDataArray - Raw log data.
+   * @returns {Promise<Object>} Combined validation result.
    */
   async validateBatchParallel(logsDataArray) {
     const startTime = Date.now();
@@ -172,7 +173,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Parse JSON using worker thread (for large JSON payloads)
+   * Parses JSON via worker (for large payloads).
+   * @param {string} jsonString - JSON string.
+   * @returns {Promise<Object>} Parsed object.
    */
   async parseJson(jsonString) {
     const stringSize = jsonString.length;
@@ -198,7 +201,10 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Decode protobuf using worker thread (for large protobuf payloads)
+   * Decodes Protobuf via worker (for large payloads).
+   * @param {Buffer} buffer - Protobuf buffer.
+   * @param {boolean} [isBatch=false] - Whether buffer contains a batch.
+   * @returns {Promise<Object|null>} Decoded data or null to fallback.
    */
   async decodeProtobuf(buffer, isBatch = false) {
     const bufferSize = buffer.length;
@@ -223,7 +229,9 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Transform data using worker thread (for large result sets)
+   * Transforms data via worker (for large result sets).
+   * @param {Object[]} rows - Data rows.
+   * @returns {Promise<Object[]>} Transformed rows.
    */
   async transformData(rows) {
     const rowCount = rows.length;
@@ -253,7 +261,8 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Get service statistics
+   * Gets service statistics.
+   * @returns {Object} Strategy statistics.
    */
   getStats() {
     const poolStats = this.workerPool.getStats();
@@ -274,7 +283,8 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Health check
+   * Performs health check.
+   * @returns {Promise<Object>} Health status.
    */
   async healthCheck() {
     const poolStats = this.workerPool.getStats();
@@ -287,7 +297,8 @@ class WorkerValidationStrategy extends ValidationStrategyContract {
   }
 
   /**
-   * Graceful shutdown
+   * Performs graceful shutdown.
+   * @returns {Promise<void>}
    */
   async shutdown() {
     this.logger.info('WorkerValidationStrategy shutting down...');

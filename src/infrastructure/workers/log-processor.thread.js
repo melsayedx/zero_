@@ -36,7 +36,7 @@ const {
 } = workerData;
 
 // Create worker-specific logger
-const logger = LoggerFactory.named(`LogProcessorThread-${workerIndex}`);
+const logger = LoggerFactory.child({ component: `LogProcessorThread-${workerIndex}` });
 
 // Worker state
 let isRunning = false;

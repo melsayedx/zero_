@@ -12,7 +12,7 @@
 const path = require('path');
 const LogLevel = require('../../domain/value-objects/log-level');
 const LoggerFactory = require('../../infrastructure/logging/logger-factory');
-const logger = LoggerFactory.named('ProtobufParser');
+const logger = LoggerFactory.child({ component: 'ProtobufParser' });
 
 /**
  * ProtobufParser class for handling protobuf log entries

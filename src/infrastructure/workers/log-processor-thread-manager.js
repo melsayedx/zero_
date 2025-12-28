@@ -29,7 +29,7 @@ class LogProcessorThreadManager {
     constructor(options) {
         this.workerCount = options.workerCount;
         this.options = options;
-        this.logger = options.logger || LoggerFactory.named('ThreadManager');
+        this.logger = options.logger || LoggerFactory.child({ component: 'ThreadManager' });
 
         // Worker tracking
         this.workers = new Map(); // index -> Worker

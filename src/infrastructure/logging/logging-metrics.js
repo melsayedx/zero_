@@ -1,20 +1,3 @@
-/**
- * LoggingMetrics - Track logging performance and usage statistics.
- *
- * Provides observability into logging patterns, useful for:
- * - Understanding log volume by level
- * - Detecting excessive error logging
- * - Performance monitoring
- *
- * @example
- * ```javascript
- * const metrics = new LoggingMetrics();
- * const logger = new StructuredLogger({ metrics });
- *
- * logger.info('test');
- * console.log(metrics.getStats()); // { info: 1, ... }
- * ```
- */
 class LoggingMetrics {
     constructor() {
         this.counts = {
@@ -40,10 +23,6 @@ class LoggingMetrics {
         }
     }
 
-    /**
-     * Get logging statistics.
-     * @returns {Object} Statistics including counts and rates
-     */
     getStats() {
         const uptimeMs = Date.now() - this.lastReset;
         const uptimeSec = uptimeMs / 1000;
@@ -59,9 +38,6 @@ class LoggingMetrics {
         };
     }
 
-    /**
-     * Reset all counters.
-     */
     reset() {
         Object.keys(this.counts).forEach(key => {
             this.counts[key] = 0;
@@ -72,3 +48,4 @@ class LoggingMetrics {
 }
 
 module.exports = LoggingMetrics;
+

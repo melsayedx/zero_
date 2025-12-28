@@ -8,7 +8,7 @@ const {
 } = require('../../infrastructure/grpc/generated/proto/logs/logs_pb');
 const { LogEntry: ProtoLogEntry } = require('../../infrastructure/grpc/generated/proto/logs/log-entry_pb');
 
-const logger = LoggerFactory.named('gRPC');
+const logger = LoggerFactory.child({ component: 'gRPC' });
 
 /**
  * gRPC Handlers

@@ -11,7 +11,7 @@ const path = require('path');
 const { LoggerFactory } = require('./infrastructure/logging');
 
 // Initialize bootstrap logger
-const logger = LoggerFactory.named('Bootstrap');
+const logger = LoggerFactory.child({ component: 'Bootstrap' });
 
 /**
  * Create application instance

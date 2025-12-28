@@ -31,7 +31,7 @@ class EmbeddingWorker {
 
         this.clickhouse = clickhouseClient;
         this.provider = embeddingProvider;
-        this.logger = options.logger || LoggerFactory.named('EmbeddingWorker');
+        this.logger = options.logger || LoggerFactory.child({ component: 'EmbeddingWorker' });
 
         // Configuration
         this.batchSize = options.batchSize || 100;

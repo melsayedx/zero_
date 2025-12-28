@@ -2,7 +2,7 @@ const Redis = require('ioredis');
 const { LoggerFactory } = require('../logging');
 
 // Module-level logger for Redis operations
-const logger = LoggerFactory.named('Redis');
+const logger = LoggerFactory.child({ component: 'Redis' });
 
 /**
  * Redis Configuration and Client Initialization
