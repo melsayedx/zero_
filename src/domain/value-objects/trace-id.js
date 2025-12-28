@@ -27,6 +27,7 @@ class TraceId {
   toJSON() {
     return this.value;
   }
+
 }
 
 module.exports = TraceId;

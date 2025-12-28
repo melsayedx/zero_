@@ -1,9 +1,9 @@
 const { createClickHouseClient } = require('../database/clickhouse');
 const ClickHouseRepository = require('../../interfaces/persistence/clickhouse.repository');
 const RedisLogRepository = require('../../interfaces/persistence/redis-log.repository');
-const IngestLogUseCase = require('../../application/use-cases/logs/ingest-log.use-case');
-const LogRetrievalUseCase = require('../../application/use-cases/logs/log-retrieval.use-case');
-const SemanticSearchUseCase = require('../../application/use-cases/logs/semantic-search.use-case');
+const IngestLogUseCase = require('../../application/use-cases/ingest-log.use-case');
+const LogRetrievalUseCase = require('../../application/use-cases/log-retrieval.use-case');
+const SemanticSearchUseCase = require('../../application/use-cases/semantic-search.use-case');
 const { IngestLogController, HealthCheckController, LogRetrievalController, SemanticSearchController } = require('../../interfaces/http/controllers');
 const { StatsController } = require('../../interfaces/http/controllers');
 const { TransformersProvider, OpenAIProvider } = require('../embeddings');

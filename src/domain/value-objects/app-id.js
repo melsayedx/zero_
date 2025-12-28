@@ -24,6 +24,7 @@ class AppId {
   toJSON() {
     return this.value;
   }
+
 }
 
 /**
