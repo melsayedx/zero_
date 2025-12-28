@@ -1,5 +1,5 @@
 const IngestResult = require('../use-cases/ingest-result');
-// TODO: complete refactor
+
 class LogIngestionService {
 
   /**
@@ -40,8 +40,6 @@ class LogIngestionService {
     this.metrics.processedBatches++;
 
     const batchLen = requestBatch.length;
-
-    // Normalize once - avoid repeated Array.isArray checks
     const normalizedBatch = new Array(batchLen);
     let totalLogs = 0;
     for (let i = 0; i < batchLen; i++) {
@@ -55,9 +53,11 @@ class LogIngestionService {
 
     // Pre-allocate
     const results = new Array(batchLen);
-    const requestCounts = new Array(batchLen);    // Just store counts, not full meta objects
+    // It's used to map logs back to their original requests
+    // by storing the total number of logs in each request at each index
+    const requestCounts = new Array(batchLen);
     const allLogs = new Array(totalLogs);
-    const indexToRequest = new Array(totalLogs);  // Array is faster than Map for sequential indices
+    const indexToRequest = new Array(totalLogs);
 
     // Single pass: build allLogs and index mapping
     let logIdx = 0;
@@ -65,10 +65,9 @@ class LogIngestionService {
       const reqData = normalizedBatch[reqIdx];
       requestCounts[reqIdx] = reqData.length;
 
-      for (let i = 0; i < reqData.length; i++) {
+      for (let i = 0; i < reqData.length; i++, logIdx++) {
         allLogs[logIdx] = reqData[i];
         indexToRequest[logIdx] = reqIdx;
-        logIdx++;
       }
     }
 
@@ -92,7 +91,6 @@ class LogIngestionService {
 
       const aggregatedErrors = batchResult.errors || [];
 
-      // Initialize error arrays
       const errorsPerRequest = new Array(batchLen);
       for (let i = 0; i < batchLen; i++) {
         errorsPerRequest[i] = [];
@@ -100,17 +98,16 @@ class LogIngestionService {
 
       // Map errors back using O(1) array lookup
       for (let i = 0; i < aggregatedErrors.length; i++) {
-        const err = aggregatedErrors[i];
-        const reqIdx = indexToRequest[err.index];
-        if (reqIdx !== undefined) {
-          errorsPerRequest[reqIdx].push(err);
-        }
+        const error = aggregatedErrors[i];
+        const reqIdx = indexToRequest[error.index];
+        errorsPerRequest[reqIdx].push(error);
       }
 
       const sharedProcessingTime = batchResult.processingTime;
       const sharedThroughput = batchResult.throughput;
       const sharedValidationMode = `${batchResult.validationMode || 'standard'}-coalesced`;
 
+      // Build results whether there are errors or not for each request
       for (let i = 0; i < batchLen; i++) {
         const requestErrors = errorsPerRequest[i];
         const rejected = requestErrors.length;
@@ -125,6 +122,7 @@ class LogIngestionService {
       }
 
       return results;
+
     } catch (error) {
       const errorObj = { error: error.message };
       for (let i = 0; i < batchLen; i++) {
@@ -137,6 +135,7 @@ class LogIngestionService {
           validationMode: 'optimized-service'
         });
       }
+
       return results;
     }
   }

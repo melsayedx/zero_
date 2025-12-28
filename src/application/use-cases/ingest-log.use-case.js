@@ -52,7 +52,7 @@ class IngestLogUseCase extends IngestLogContract {
     return new IngestResult({
       accepted: validLogEntries.length,
       rejected: errors.length,
-      errors: errors.slice(0, 100),
+      errors: errors,
       processingTime,
       throughput
     });
