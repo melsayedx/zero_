@@ -2,53 +2,15 @@ const LogRepositoryContract = require('../../domain/contracts/log-repository.con
 const InMemoryQueryCache = require('../../infrastructure/cache/in-memory-query.cache');
 
 /**
- * ClickHouse Repository - High-performance log storage with intelligent batching.
- *
- * This repository implements the LogRepositoryPort interface with ClickHouse-specific
- * optimizations for high-throughput log ingestion and efficient querying. It uses an
- * intelligent batch buffer to accumulate logs and flush them in large batches, dramatically
- * reducing database load while maintaining low-latency ingestion.
- *
- * Key features:
- * - Intelligent batching with configurable size/time thresholds
- * - Optimized query building with PREWHERE clauses for indexed fields
- * - Automatic field escaping and type handling
- * - Health monitoring and performance metrics
- * - Cursor-based pagination for efficient log retrieval
- * - Pluggable query cache (in-memory or distributed)
- *
- * The repository enforces app_id as a required filter for query performance and supports
- * complex filtering with operators (=, !=, >, <, >=, <=, IN, LIKE, BETWEEN).
- *
- * @example
- * ```javascript
- * // Create repository with custom cache
- * const cache = new RedisQueryCache(redisClient, { prefix: 'logs:cache' });
- * const repo = new ClickHouseRepository(client, { queryCache: cache });
- *
- * // Query logs with filtering and pagination
- * const result = await repo.findBy({
- *   filter: { app_id: 'my-app', level: 'ERROR' },
- *   limit: 100
- * });
- * ```
+ * Log repository implementation for ClickHouse with batching and query support.
+ * @implements {LogRepositoryContract}
  */
 class ClickHouseRepository extends LogRepositoryContract {
   /**
-   * Create a new ClickHouse repository instance.
-   *
-   * @param {Object} client - ClickHouse client instance
-   * @param {Object} [options={}] - Configuration options
-   * @param {string} [options.tableName='logs'] - ClickHouse table name
-   * @param {QueryCacheContract} [options.queryCache] - Query cache (defaults to InMemoryQueryCache)
-   *
-   * @example
-   * ```javascript
-   * const repo = new ClickHouseRepository(client, {
-   *   tableName: 'application_logs',
-   *   queryCache: new RedisQueryCache(redisClient)
-   * });
-   * ```
+   * @param {Object} client - ClickHouse client.
+   * @param {Object} [options] - Config options.
+   * @param {string} [options.tableName='logs'] - Table name.
+   * @param {QueryCacheContract} [options.queryCache] - Query cache.
    */
   constructor(client, options = {}) {
     super();
@@ -85,13 +47,9 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Save a batch of log entries directly to ClickHouse (called by BatchBuffer).
-   *
-   * Converts normalized log entries (with primitives from LogEntry.normalize())
-   * to ClickHouse format and performs optimized batch insertion.
-   *
-   * @param {Array<Object>} logs - Normalized log entries from BatchBuffer
-   * @returns {Promise<void>} Resolves when batch is successfully inserted
+   * Direct inserts a batch of logs to ClickHouse.
+   * @param {Array<Object>} logs - Normalized logs.
+   * @returns {Promise<void>}
    */
   async save(logs) {
     // Convert camelCase (from LogEntry.normalize) to snake_case for ClickHouse
@@ -138,37 +96,9 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Find logs by filter with optimized query performance.
-   *
-   * Performs efficient log retrieval with automatic query optimization. Uses PREWHERE clauses
-   * for indexed fields and enforces app_id as a required filter for performance. Supports
-   * cursor-based pagination for efficient large result sets.
-   *
-   * @param {Object} options - Query options
-   * @param {Object} [options.filter={}] - Filter conditions (app_id required)
-   * @param {number} [options.limit=100] - Maximum results to return (1-1000)
-   * @param {Object} [options.cursor=null] - Pagination cursor { timestamp, id }
-   * @param {Object} [options.sort=null] - Sort options { field, order }
-   * @returns {Promise<Object>} Query results with pagination info
-   * @returns {Array} return.logs - Array of log objects with parsed metadata
-   * @returns {Object|null} return.nextCursor - Cursor for next page { timestamp, id }
-   * @returns {boolean} return.hasMore - Whether more results are available
-   * @returns {number} return.queryTime - Query execution time in milliseconds
-   * @throws {Error} If app_id filter is missing or invalid filter/limit provided
-   *
-   * @example
-   * ```javascript
-   * // Query logs with advanced filtering and pagination
-   * const result = await repo.findBy({
-   *   filter: {
-   *     app_id: 'my-app',
-   *     level: { operator: 'IN', value: ['ERROR', 'WARN'] },
-   *     timestamp: { operator: '>', value: '2024-01-01' }
-   *   },
-   *   limit: 100,
-   *   sort: { field: 'timestamp', order: 'DESC' }
-   * });
-   * ```
+   * Finds logs with optimized filtering and cursor pagination.
+   * @param {Object} options - Query options { filter, limit, cursor, sort }.
+   * @returns {Promise<Object>} { logs, nextCursor, hasMore, queryTime }.
    */
   async findBy({ filter = {}, limit = 100, cursor = null, sort = null }) {
     const startTime = Date.now();
@@ -227,29 +157,10 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Find logs similar to a query embedding using vector similarity search.
-   * 
-   * Performs semantic search using cosineDistance on the log_embeddings table,
-   * then joins with the logs table to return full log entries. Supports
-   * hybrid filtering with metadata constraints.
-   * 
-   * @param {number[]} queryEmbedding - Query embedding vector (384 dimensions)
-   * @param {Object} [options={}] - Search options
-   * @param {string} [options.appId] - Filter by app_id
-   * @param {number} [options.limit=20] - Maximum results to return
-   * @param {string[]} [options.level] - Filter by log levels
-   * @param {Object} [options.timeRange] - Filter by time range { start, end }
-   * @returns {Promise<Array>} Array of similar logs with similarity scores
-   * 
-   * @example
-   * ```javascript
-   * const results = await repo.findSimilar(queryEmbedding, {
-   *   appId: 'my-app',
-   *   limit: 20,
-   *   level: ['ERROR', 'WARN'],
-   *   timeRange: { start: '2024-01-01', end: '2024-01-31' }
-   * });
-   * ```
+   * Semantic search using vector embeddings.
+   * @param {number[]} queryEmbedding - 384d vector.
+   * @param {Object} [options] - Filters { appId, limit, level, timeRange }.
+   * @returns {Promise<Array>} Similar logs with scores.
    */
   async findSimilar(queryEmbedding, options = {}) {
     const { appId, limit = 20, level, timeRange } = options;
@@ -324,29 +235,8 @@ class ClickHouseRepository extends LogRepositoryContract {
 
 
   /**
-   * Build WHERE clause with cursor-based pagination support.
-   *
-   * Constructs optimized WHERE conditions by separating indexed and non-indexed fields.
-   * Indexed fields are prioritized for better query performance. Adds cursor conditions
-   * for efficient pagination using (timestamp, id) tuple comparison.
-   *
+   * Builds optimized WHERE clause with pagination cursor.
    * @private
-   * @param {Object} filter - Filter conditions object
-   * @param {Object} [cursor] - Pagination cursor { timestamp, id }
-   * @returns {Object} Where clause components
-   * @returns {string} return.whereClause - Combined WHERE clause string
-   * @returns {Array} return.indexedConditions - Array of indexed field conditions
-   * @throws {Error} If filter contains invalid fields or cursor is malformed
-   *
-   * @example
-   * ```javascript
-   * const { whereClause, indexedConditions } = this.buildWhereClause(
-   *   { app_id: 'my-app', level: 'ERROR' },
-   *   { timestamp: '2024-01-01 12:00:00', id: 'uuid-123' }
-   * );
-   * // whereClause: "app_id = 'my-app' AND level = 'ERROR' AND (timestamp, id) < ('2024-01-01 12:00:00', 'uuid-123')"
-   * // indexedConditions: ["app_id = 'my-app'", "level = 'ERROR'", "(timestamp, id) < (...)"]
-   * ```
    */
   buildWhereClause(filter, cursor) {
     const indexedConditions = [];
@@ -384,22 +274,8 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Build ORDER BY clause with default sorting.
-   *
-   * Creates ORDER BY clause for query sorting. Defaults to timestamp DESC, id DESC
-   * for consistent pagination behavior. Supports custom field and order specification.
-   *
+   * Builds ORDER BY clause (default: timestamp DESC, id DESC).
    * @private
-   * @param {Object} [sort] - Sort options { field, order }
-   * @param {string} [sort.field='timestamp'] - Field to sort by
-   * @param {string} [sort.order='DESC'] - Sort order (ASC/DESC)
-   * @returns {string} ORDER BY clause
-   *
-   * @example
-   * ```javascript
-   * this.buildOrderBy(); // "ORDER BY timestamp DESC, id DESC"
-   * this.buildOrderBy({ field: 'level', order: 'ASC' }); // "ORDER BY level ASC"
-   * ```
    */
   buildOrderBy(sort) {
     if (!sort) return 'ORDER BY timestamp DESC, id DESC';
@@ -408,31 +284,8 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Get cached query or build optimized SELECT query with PREWHERE optimization.
-   *
-   * Constructs the final SELECT query using ClickHouse optimizations. When indexed
-   * conditions are present, uses PREWHERE clause to filter data before WHERE clause
-   * processing, significantly improving query performance for large datasets.
-   *
-   * Uses query caching for repeated patterns to reduce query building overhead.
-   *
+   * Builds/caches SELECT query with PREWHERE optimization.
    * @private
-   * @param {string} whereClause - WHERE clause conditions
-   * @param {Array} indexedConditions - Array of indexed field conditions
-   * @param {string} orderBy - ORDER BY clause
-   * @param {number} limit - LIMIT value (includes +1 for pagination detection)
-   * @returns {string} Complete SELECT query string
-   *
-   * @example
-   * ```javascript
-   * const query = this.buildSelectQuery(
-   *   "app_id = 'my-app'",
-   *   ["app_id = 'my-app'", "level = 'ERROR'"],
-   *   "ORDER BY timestamp DESC, id DESC",
-   *   101
-   * );
-   * // Uses PREWHERE for indexed conditions when available
-   * ```
    */
   async buildSelectQuery(whereClause, indexedConditions, orderBy, limit) {
     // Create cache key from query components
@@ -495,23 +348,8 @@ class ClickHouseRepository extends LogRepositoryContract {
 
 
   /**
-   * Build simple condition for field-value pairs.
-   *
-   * Creates SQL conditions for basic filtering operations. Supports equality,
-   * IN arrays, and complex operator objects for advanced filtering.
-   *
+   * Builds simple field condition (equality or IN).
    * @private
-   * @param {string} field - Field name to filter on
-   * @param {*} value - Filter value (string, number, array, or operator object)
-   * @returns {string} SQL condition string
-   * @throws {Error} If field is not in FILTER_CONFIG
-   *
-   * @example
-   * ```javascript
-   * this.buildSimpleCondition('level', 'ERROR'); // "level = 'ERROR'"
-   * this.buildSimpleCondition('level', ['ERROR', 'WARN']); // "level IN ('ERROR', 'WARN')"
-   * this.buildSimpleCondition('message', { operator: 'LIKE', value: 'error' }); // "message LIKE '%error%'"
-   * ```
    */
   buildSimpleCondition(field, value) {
     const fieldType = this.FILTER_CONFIG.get(field).type;
@@ -531,24 +369,8 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Build complex condition with explicit operator.
-   *
-   * Creates SQL conditions for advanced filtering operations including comparison
-   * operators, IN clauses, LIKE patterns, and BETWEEN ranges with proper value escaping.
-   *
+   * Builds complex condition with operators.
    * @private
-   * @param {string} field - Field name
-   * @param {string} operator - SQL operator (=, !=, >, <, >=, <=, IN, LIKE, ILIKE, BETWEEN)
-   * @param {*} value - Filter value
-   * @param {string} type - Field type (string, datetime, number)
-   * @returns {string} SQL condition with escaped values
-   * @throws {Error} If operator is unsupported or value format is invalid
-   *
-   * @example
-   * ```javascript
-   * this.buildCondition('level', 'IN', ['ERROR', 'WARN'], 'string');
-   * // "level IN ('ERROR', 'WARN')"
-   * ```
    */
   buildCondition(field, operator, value, type) {
     const escapedField = this.escapeIdentifier(field);
@@ -586,59 +408,24 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Escape SQL identifier to prevent injection.
-   *
-   * Wraps identifiers in backticks and removes any existing backticks to ensure
-   * safe SQL generation. Uses precompiled regex for better performance.
-   *
+   * Escapes SQL identifier.
    * @private
-   * @param {string} identifier - Raw identifier string
-   * @returns {string} Escaped identifier wrapped in backticks
-   *
-   * @example
-   * ```javascript
-   * this.escapeIdentifier('user`id'); // "`userid`" (backticks removed)
-   * ```
    */
   escapeIdentifier(identifier) {
     return `\`${identifier.replace(this.BACKTICK_PATTERN, '')}\``;
   }
 
   /**
-   * Escape string value for SQL safety.
-   *
-   * Doubles single quotes to escape them in SQL strings, preventing injection attacks.
-   * Uses precompiled regex for better performance.
-   *
+   * Escapes string value.
    * @private
-   * @param {string} value - Raw string value
-   * @returns {string} SQL-safe escaped string
-   *
-   * @example
-   * ```javascript
-   * this.escapeString("It's working"); // "It''s working"
-   * ```
    */
   escapeString(value) {
     return String(value).replace(this.QUOTE_PATTERN, "''");
   }
 
   /**
-   * Escape and format value based on its data type.
-   *
-   * Converts values to their appropriate SQL representation with proper escaping
-   * for strings and type-specific formatting for dates and numbers.
-   *
+   * Formats and escapes value by type.
    * @private
-   * @param {*} value - Raw value to escape
-   * @param {string} type - Data type (string, datetime, number)
-   * @returns {string} SQL-formatted and escaped value
-   * @throws {Error} If type is unsupported or number is invalid
-   *
-   * @example
-   * ```javascript
-   * this.escapeValue('test', 'string'); // "'test'"
-   * ```
    */
   escapeValue(value, type) {
     if (value === null || value === undefined) return 'NULL';
@@ -662,18 +449,8 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Validate query limit parameter.
-   *
-   * Ensures limit is within acceptable bounds (1-1000) for performance and memory safety.
-   *
+   * Validates query limit (1-1000).
    * @private
-   * @param {number} limit - Limit value to validate
-   * @throws {Error} If limit is not between 1 and 1000
-   *
-   * @example
-   * ```javascript
-   * this.validateLimit(100); // OK
-   * ```
    */
   validateLimit(limit) {
     const num = parseInt(limit, 10);
@@ -683,24 +460,8 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 
   /**
-   * Get comprehensive performance statistics.
-   *
-   * Retrieves table statistics from ClickHouse system tables and includes batch buffer
-   * metrics for complete performance monitoring. Returns data size, row counts, and
-   * buffer performance information.
-   *
-   * @returns {Promise<Object>} Performance statistics
-   * @returns {string} return.table - Table name
-   * @returns {Object|null} return.stats - Table statistics from ClickHouse
-   * @returns {Object} return.buffer - Batch buffer performance metrics
-   * @returns {string} return.timestamp - ISO timestamp of when stats were collected
-   *
-   * @example
-   * ```javascript
-   * const stats = await repo.getStats();
-   * console.log(`Table size: ${stats.stats?.size || 'unknown'}`);
-   * console.log(`Buffer pending: ${stats.buffer.pendingCount} items`);
-   * ```
+   * Gets table and performance stats.
+   * @returns {Promise<Object>} { table, stats, timestamp }.
    */
   async getStats() {
     try {
@@ -745,56 +506,6 @@ class ClickHouseRepository extends LogRepositoryContract {
     }
   }
 
-  // Note: Buffer-related methods (getBufferMetrics, getBufferHealth, flushBuffer)
-  // have been removed. Buffer logic is now in LogProcessorWorker for crash-proof processing.
-  // Use worker.getHealth() for buffer metrics.
-
-  // Note: shutdown() has been removed - this repository is stateless.
-  // Graceful shutdown is handled by LogProcessorWorker.stop() which
-  // flushes its BatchBuffer and acknowledges Redis messages.
-
-  /**
-   * Clear the query cache.
-   *
-   * Useful for testing or when schema changes might invalidate cached queries.
-   *
-   * @returns {Promise<void>}
-   *
-   * @example
-   * ```javascript
-   * // Clear cache after schema changes
-   * await repo.clearQueryCache();
-   * ```
-   */
-  async clearQueryCache() {
-    await this.queryCache.clear();
-  }
-
-  /**
-   * Perform comprehensive health check of ClickHouse connection.
-   *
-   * Tests connectivity, measures latency, and verifies database accessibility.
-   * Used for monitoring and load balancer health checks. Results are cached
-   * for 30 seconds to reduce load on the database during frequent health checks.
-   *
-   * @returns {Promise<Object>} Health check results
-   * @returns {boolean} return.healthy - Whether service is healthy
-   * @returns {number} return.latency - Total latency in milliseconds
-   * @returns {number} return.pingLatency - Ping latency in milliseconds
-   * @returns {string} return.version - Service version identifier
-   * @returns {string} [return.error] - Error message if unhealthy
-   * @returns {string} return.timestamp - ISO timestamp of health check
-   * @returns {boolean} [return.cached] - Whether result came from cache
-   *
-   * @example
-   * ```javascript
-   * const health = await repo.healthCheck();
-   * if (!health.healthy) {
-   *   console.error('ClickHouse health check failed:', health.error);
-   *   // Trigger alerts or failover
-   * }
-   * ```
-   */
   async healthCheck() {
     const now = Date.now();
 
@@ -858,16 +569,5 @@ class ClickHouseRepository extends LogRepositoryContract {
   }
 }
 
-/**
- * @typedef {ClickHouseRepository} ClickHouseRepository
- * @property {Object} client - ClickHouse client instance
- * @property {string} tableName - ClickHouse table name
- * @property {Map} FILTER_CONFIG - Field configuration for filtering (optimized Map)
- * @property {RegExp} QUOTE_PATTERN - Precompiled regex for quote escaping
- * @property {RegExp} BACKTICK_PATTERN - Precompiled regex for backtick escaping
- * @property {InMemoryQueryCache|RedisQueryCache} queryCache - Query template cache (in-memory or Redis)
- * @property {Object|null} lastHealthCheck - Cached health check result
- * @property {number} healthCheckCacheTime - Health check cache duration in milliseconds
- */
 module.exports = ClickHouseRepository;
 

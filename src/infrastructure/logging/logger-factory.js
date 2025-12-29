@@ -36,18 +36,16 @@ class LoggerFactory {
                 return NullLogger.instance;
             }
 
-            let pretty = options.pretty;
-            if (pretty === undefined) {
-                pretty = process.env.LOG_PRETTY === 'true';
-            }
+            let pretty = options.pretty || process.env.LOG_PRETTY === 'true';
             let metrics = options.metrics || new LoggingMetrics();
+            let timestamps = options.timestamps || true;
 
             return new StructuredLogger({
                 level,
                 pretty,
                 name: options.name,
                 context: options.context,
-                timestamps: options.timestamps,
+                timestamps,
                 metrics,
                 output: options.output || console.log,
                 errorOutput: options.errorOutput || console.error
