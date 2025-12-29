@@ -9,9 +9,8 @@
  */
 
 const { workerData, parentPort } = require('worker_threads');
-const Redis = require('ioredis');
+const { createWorkerRedisClient } = require('../database/redis');
 
-// Import required classes
 const ClickHouseRepository = require('../persistence/clickhouse.repository');
 const RedisRetryStrategy = require('../retry-strategies/redis-retry-strategy');
 const RedisStreamQueue = require('../queues/redis-stream-queue');
@@ -23,7 +22,7 @@ const { LoggerFactory } = require('../logging');
 const {
     workerIndex,
     consumerName,
-    redisConfig,
+    workerRole,
     streamKey,
     groupName,
     batchSize,
@@ -31,8 +30,10 @@ const {
     maxWaitTime,
     pollInterval,
     claimMinIdleMs,
+    blockMs,
     retryQueueLimit,
-    clickhouseTable
+    clickhouseTable,
+    recoveryIntervalMs
 } = workerData;
 
 // Create worker-specific logger
@@ -48,37 +49,13 @@ let retryStrategy = null;
 let streamQueue = null;
 let batchBuffer = null;
 
-/**
- * Initialize all dependencies for this worker thread
- */
 async function initialize() {
     logger.info('Initializing worker thread', { consumerName });
 
-    // Reconstruct full Redis config with non-serializable functions
-    // (Functions cannot be passed via workerData)
-    const fullRedisConfig = {
-        ...redisConfig,
-        retryStrategy: (times) => {
-            const delay = Math.min(times * 50, 2000);
-            return delay;
-        },
-        reconnectOnError: (err) => {
-            if (err.message.includes('READONLY')) {
-                return true;
-            }
-        }
-    };
+    redis = createWorkerRedisClient(`worker-${workerIndex}`);
 
-    // Create dedicated Redis client for this worker
-    redis = new Redis(fullRedisConfig);
-    redis.on('error', (err) => {
-        logger.error('Redis connection error', { error: err.message });
-    });
-
-    // Create ClickHouse client
     clickhouseClient = createClickHouseClient();
 
-    // Create retry strategy
     retryStrategy = new RedisRetryStrategy(redis, {
         queueName: 'clickhouse:dead-letter',
         maxRetries: 3,
@@ -86,25 +63,23 @@ async function initialize() {
         logger: logger.child({ component: 'RetryStrategy' })
     });
 
-    // Create ClickHouse repository
     clickhouseRepository = new ClickHouseRepository(clickhouseClient, {
-        tableName: clickhouseTable || 'logs',
+        tableName: clickhouseTable,
         logger: logger.child({ component: 'ClickHouseRepository' })
     });
 
-    // Create Redis Stream Queue
     streamQueue = new RedisStreamQueue(redis, {
         streamKey,
         groupName,
         consumerName,
         batchSize,
         claimMinIdleMs,
+        blockMs,
         logger: logger.child({ component: 'RedisStreamQueue' })
     });
 
     await streamQueue.initialize();
 
-    // Create BatchBuffer with ACK callback
     batchBuffer = new BatchBuffer(clickhouseRepository, retryStrategy, {
         maxBatchSize,
         maxWaitTime,
@@ -126,9 +101,7 @@ async function initialize() {
  * Acknowledge messages in Redis after successful DB persistence
  */
 async function acknowledgeMessages(flushedLogs) {
-    const idsToAck = flushedLogs
-        .map(log => log._redisId)
-        .filter(id => id != null);
+    const idsToAck = flushedLogs.map(log => log._redisId);
 
     if (idsToAck.length === 0) return;
 
@@ -141,80 +114,36 @@ async function acknowledgeMessages(flushedLogs) {
 }
 
 /**
- * Process pending messages from previous runs
+ * Process own pending messages from previous runs (consumer startup only)
  */
 async function processPending() {
-    logger.info('Checking for pending messages...');
+    logger.info('Processing own pending messages on startup...');
 
-    // 1. Process own PEL
     let startId = '0-0';
-    let pending = await streamQueue.readPending(batchSize, startId);
-    while (pending && pending.length > 0) {
+    const pending = await streamQueue.readPending(batchSize, startId);
+
+    if (pending && pending.length > 0) {
         logger.info('Processing own pending messages', { count: pending.length, startId });
         await processMessages(pending);
-
-        // Update startId to the last message ID to get next page
-        const lastMsg = pending[pending.length - 1];
-        if (lastMsg && lastMsg.id) {
-            startId = lastMsg.id;
-        }
-
-        pending = await streamQueue.readPending(batchSize, startId);
-    }
-
-    // 2. Claim stale messages from dead workers
-    let claimed = await streamQueue.recoverPendingMessages();
-    while (claimed && claimed.length > 0) {
-        logger.info('Processing claimed stale messages', { count: claimed.length });
-        await processMessages(claimed);
-        claimed = await streamQueue.recoverPendingMessages();
     }
 }
 
-/**
- * Process a batch of messages
- */
 async function processMessages(messages) {
     if (!messages || messages.length === 0) return;
 
-    const logEntries = messages.map(msg => {
-        try {
-            const entry = msg.data;
-
-            // Normalize to expected format (camelCase) for Repository
-            const normalized = {
-                appId: entry.app_id,
-                message: entry.message,
-                source: entry.source || 'unknown',
-                level: entry.level || 'INFO',
-                environment: entry.environment || 'development',
-                timestamp: entry.timestamp,
-                // Ensure metadata is a string if Repository expects metadataString 
-                // OR handle it if Repository expects object. 
-                // Looking at ClickHouseRepository.save: metadata: log.metadataString
-                metadataString: typeof entry.metadata === 'string' ? entry.metadata : JSON.stringify(entry.metadata || {}),
-                traceId: entry.trace_id,
-                userId: entry.user_id,
-                // Internal tracking
-                _redisId: msg.id
-            };
-
-            return normalized;
-        } catch (error) {
-            logger.error('Failed to parse log entry', { error: error.message });
-            streamQueue.ack([msg.id]).catch(() => { });
-            return null;
-        }
-    }).filter(entry => entry !== null);
-
+    const logEntries = messages.map(msg => ({ ...msg.data, _redisId: msg.id }));
     if (logEntries.length > 0) {
+        // In rare cases where there is a massive batch that exceeds 
+        // the buffer size (e.g., 200k logs > 100k buffer), add() recursively
+        // calls itself. "await" ensures that all data is successfully buffered 
+        // before the worker tries to fetch the next batch.
         await batchBuffer.add(logEntries);
         logger.debug('Buffered messages', { count: logEntries.length });
     }
 }
 
 /**
- * Main processing loop
+ * Main processing loop for consumer threads
  */
 async function processLoop() {
     while (isRunning) {
@@ -226,6 +155,29 @@ async function processLoop() {
             }
         } catch (error) {
             logger.error('Error in process loop', { error: error.message });
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+}
+
+/**
+ * Recovery loop for dedicated recovery thread (XAUTOCLAIM only)
+ */
+async function recoveryLoop() {
+    const intervalMs = recoveryIntervalMs;
+    logger.info('Starting recovery loop', { intervalMs });
+
+    while (isRunning) {
+        try {
+            const claimed = await streamQueue.recoverPendingMessages();
+            if (claimed && claimed.length > 0) {
+                logger.info('Recovery thread claimed stale messages', { count: claimed.length });
+                await processMessages(claimed);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, intervalMs));
+        } catch (error) {
+            logger.error('Error in recovery loop', { error: error.message });
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
     }
@@ -251,16 +203,10 @@ async function processBatch() {
             logger.error('Failed to check retry queue stats', { error: statsError.message });
         }
 
-        // Read from Redis Stream
+        // Read from Redis Stream (new messages only)
         const messages = await streamQueue.read(batchSize);
 
         if (!messages || messages.length === 0) {
-            // Try to claim stale messages when idle
-            const claimed = await streamQueue.recoverPendingMessages();
-            if (claimed && claimed.length > 0) {
-                logger.info('Idle worker claimed stale messages', { count: claimed.length });
-                await processMessages(claimed);
-            }
             return;
         }
 
@@ -284,37 +230,20 @@ async function shutdown() {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Flush remaining logs
-    if (batchBuffer) {
-        await batchBuffer.shutdown();
-    }
-
-    // Close stream queue
-    if (streamQueue) {
-        await streamQueue.shutdown();
-    }
-
-    // Close Redis
-    if (redis) {
-        await redis.quit();
-    }
-
-    // Close ClickHouse
-    if (clickhouseClient) {
-        await clickhouseClient.close();
-    }
+    await batchBuffer.shutdown();
+    await streamQueue.shutdown();
+    await redis.quit();
+    await clickhouseClient.close();
 
     logger.info('Worker thread shutdown complete');
 }
 
-/**
- * Get health status
- */
 function getHealth() {
     return {
         isRunning,
         isProcessing,
         consumerName,
+        workerRole,
         buffer: batchBuffer ? batchBuffer.getHealth() : null
     };
 }
@@ -359,11 +288,18 @@ parentPort.on('message', async (message) => {
         isRunning = true;
 
         // Signal ready to parent
-        parentPort.postMessage({ type: 'ready', consumerName });
+        parentPort.postMessage({ type: 'ready', consumerName, workerRole });
 
-        // Process pending then start loop
-        await processPending();
-        await processLoop();
+        if (workerRole === 'recovery') {
+            // Recovery thread: dedicated XAUTOCLAIM loop only
+            logger.info('Starting as recovery thread');
+            await recoveryLoop();
+        } else {
+            // Consumer thread: process own pending then read new messages
+            logger.info('Starting as consumer thread');
+            await processPending();
+            await processLoop();
+        }
     } catch (error) {
         logger.error('Worker thread fatal error', { error: error.message });
         parentPort.postMessage({ type: 'error', error: error.message });

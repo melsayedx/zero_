@@ -1,8 +1,13 @@
 /**
  * Buffer for batching database operations with size/time triggers.
- *
+ * BatchBuffer is designed for a single-writer pattern within an isolated
+ * worker thread. 
+ * 
+ * The double-buffer pattern isn't for multi-threading - 
+ * it's for non-blocking writes (one buffer accepts data while the other flushes to ClickHouse).
+ * 
  * @example
- * const buffer = new BatchBuffer(repo, retryStrategy, { maxBatchSize: 1000 });
+ * const buffer = new BatchBuffer(repo, retryStrategy, { maxBatchSize: 100000 });
  * await buffer.add(logs); // Auto-flushes when full or time limit reached
  */
 
@@ -14,7 +19,7 @@ class BatchBuffer {
    * @param {Object} [options] - Config options.
    * @param {number} [options.maxBatchSize=100000] - Max logs before flush.
    * @param {number} [options.maxWaitTime=1000] - Max ms before flush.
-   * @param {Logger} options.logger - Required logger instance.
+   * @param {Logger} [options.logger] - Required logger instance.
    * @param {Function} [options.onFlushSuccess] - Callback after successful flush.
    */
   constructor(repository, retryStrategy, options = {}) {
@@ -30,11 +35,19 @@ class BatchBuffer {
     // Optional callback for crash-proof ACK (called after successful DB persistence)
     this.onFlushSuccess = options.onFlushSuccess;
 
-    // Buffer state
-    this.buffer = [];
+    // Double Buffer (Ping-Pong) State
+    this.bufferA = new Array(this.maxBatchSize);
+    this.bufferB = new Array(this.maxBatchSize);
+    this.activeBuffer = this.bufferA;
+    this.count = 0; // Tracks items in the ACTIVE buffer
+
     this.flushTimer = null;
     this.isFlushing = false;
     this.isShuttingDown = false;
+
+    // Concurrency Control
+    this.activeFlushes = new Set(); // Track ALL active background flushes
+    this.maxConcurrentFlushes = options.maxConcurrentFlushes || 5; // Backpressure limit
 
     // Metrics with cached calculations
     this.metrics = {
@@ -49,16 +62,9 @@ class BatchBuffer {
 
     this._cachedHealth = null;
     this._healthCacheTime = 0;
-    this._healthCacheTTL = 5000; // Cache health for 5 seconds
+    this._healthCacheTTL = 5000;
 
     this.startFlushTimer();
-
-    this.logger.info('Initialized', {
-      maxBatchSize: this.maxBatchSize,
-      maxWaitTime: this.maxWaitTime,
-      repositoryType: repository.constructor.name,
-      retryStrategyType: retryStrategy.constructor.name
-    });
   }
 
   /**
@@ -68,80 +74,116 @@ class BatchBuffer {
    * @throws {Error} If shutting down or invalid input.
    */
   async add(logs) {
-    if (!Array.isArray(logs) || logs.length === 0) {
-      return;
-    }
-
     if (this.isShuttingDown) {
       throw new Error('BatchBuffer is shutting down, cannot accept new logs');
     }
 
-    // Efficient array concatenation - much faster than spread operator for large arrays
-    const currentLength = this.buffer.length;
-    const newLength = currentLength + logs.length;
+    if (!logs || logs.length === 0) return;
 
-    // Pre-allocate buffer if needed for better performance
-    if (this.buffer.length === 0) {
-      this.buffer = new Array(newLength);
-    } else if (newLength > this.buffer.length) {
-      this.buffer.length = Math.max(newLength, this.buffer.length * 2);
+    // Check if new logs fit in remaining space of ACTIVE buffer
+    const remainingSpace = this.maxBatchSize - this.count;
+
+    // Case 1: All logs fit
+    if (logs.length <= remainingSpace) {
+      for (let i = 0; i < logs.length; i++) {
+        this.activeBuffer[this.count++] = logs[i];
+      }
+      this.metrics.totalLogsBuffered += logs.length;
+
+      // If full, SWAP AND FLUSH
+      if (this.count >= this.maxBatchSize) {
+        await this._swapAndFlush();
+      } else {
+        // Ensure timer is running if we have data
+        this._ensureTimerIsRunning();
+      }
     }
+    // Case 2: Logs overflow buffer - split them
+    else {
+      // Fill remainder
+      for (let i = 0; i < remainingSpace; i++) {
+        this.activeBuffer[this.count++] = logs[i];
+      }
+      // Buffer full -> Swap and flush, then process remainder
+      await this._swapAndFlush();
 
-    // Copy logs efficiently
-    for (let i = 0; i < logs.length; i++) {
-      this.buffer[currentLength + i] = logs[i];
-    }
-
-    // Trim to actual size
-    this.buffer.length = newLength;
-
-    this.metrics.totalLogsBuffered += logs.length;
-
-    // Ensure flush timer is running if buffer has items
-    if (!this.flushTimer && !this.isFlushing) {
-      this.startFlushTimer();
-    }
-
-    // Check if we need to flush based on size
-    if (this.buffer.length >= this.maxBatchSize) {
-      await this.flush();
+      // Recursively add the rest
+      const remainingLogs = logs.slice(remainingSpace);
+      await this.add(remainingLogs);
     }
   }
 
   /**
-   * Persists buffered logs to repository.
-   * @returns {Promise<Object>} Result { flushed, buffered, duration }.
+   * Internal helper: Swaps active buffer and triggers background flush.
+   * returning immediately.
+   * @private
    */
-  async flush() {
-    // Prevent concurrent flushes
-    if (this.isFlushing || this.buffer.length === 0) {
-      return { flushed: 0, buffered: this.buffer.length };
+  /**
+   * Internal helper: Swaps active buffer and triggers background flush.
+   * returning immediately unless backpressure is active.
+   * @private
+   */
+  async _swapAndFlush() {
+    if (this.count === 0) return;
+
+    // 0. Backpressure Control
+    if (this.activeFlushes.size >= this.maxConcurrentFlushes) {
+      this.logger.warn('Backpressure: Max concurrent flushes reached, waiting for a slot...');
+      // Wait for ANY flush to finish to free up a slot
+      await Promise.race(this.activeFlushes);
     }
 
+    const bufferToFlush = this.activeBuffer;
+    const countToFlush = this.count;
+    this.activeBuffer = (this.activeBuffer === this.bufferA) ? this.bufferB : this.bufferA;
+    this.count = 0;
+
+    // 3. Clear timer if it was running (flush handles it)
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    // 4. Trigger flush in BACKGROUND (do not await)
+    // Track the promise in the Set for shutdown safety
+    const flushPromise = this._flushBuffer(bufferToFlush, countToFlush)
+      .catch(err => {
+        this.logger.error('Background flush failed', { error: err.message });
+      })
+      .finally(() => {
+        this.activeFlushes.delete(flushPromise);
+      });
+
+    this.activeFlushes.add(flushPromise);
+  }
+
+  /**
+   * Internal method: Persists a specific buffer to repository.
+   * @param {Array} buffer - The buffer array to flush
+   * @param {number} count - Number of items in that buffer
+   * @returns {Promise<Object>} Result
+   * @private
+   */
+  async _flushBuffer(buffer, count) {
     this.isFlushing = true;
-    const startTime = Date.now();
+    const startTime = performance.now();
 
-    // Take current buffer and reset (allows new logs to accumulate)
-    const logsToFlush = this.buffer;
-    this.buffer = [];
-
-    // Restart the flush timer
-    this.resetFlushTimer();
+    // Create a view of the VALID data to flush
+    const logsToFlush = buffer.slice(0, count);
 
     try {
       // Call repository's save method
       await this.repository.save(logsToFlush);
 
       // Update metrics efficiently
-      const flushTime = Date.now() - startTime;
+      const flushTime = performance.now() - startTime;
       this._updateMetricsAfterSuccess(logsToFlush.length, flushTime);
 
-      // Invoke ACK callback for crash-proof processing (e.g., Redis XACK)
+      // Invoke ACK callback 
       if (this.onFlushSuccess) {
         try {
           await this.onFlushSuccess(logsToFlush);
         } catch (ackError) {
-          // Log but don't fail - data is already persisted
           this.logger.error('onFlushSuccess callback error', { error: ackError.message });
         }
       }
@@ -149,13 +191,11 @@ class BatchBuffer {
       this.logger.debug('Flushed successfully', {
         logs: logsToFlush.length,
         duration: flushTime + 'ms',
-        buffered: this.buffer.length,
         totalInserted: this.metrics.totalLogsInserted
       });
 
       return {
         flushed: logsToFlush.length,
-        buffered: this.buffer.length,
         duration: flushTime
       };
 
@@ -164,8 +204,7 @@ class BatchBuffer {
 
       this.logger.error('Flush error', {
         error: error.message,
-        logsLost: logsToFlush.length,
-        buffered: this.buffer.length
+        logsLost: logsToFlush.length
       });
 
       // Queue failed batch for retry using the configured strategy
@@ -178,8 +217,7 @@ class BatchBuffer {
           }
         });
 
-        // CRITICAL FIX: If effectively queued for retry (DLQ), we MUST ACK the original messages
-        // so the worker doesn't re-process them infinitely. The DLQ is now the source of truth.
+        // CRITICAL FIX: If queued for retry, we MUST ACK original messages
         if (this.onFlushSuccess) {
           try {
             this.logger.info('ACKing messages after successful retry queuing', { count: logsToFlush.length });
@@ -205,59 +243,27 @@ class BatchBuffer {
     }
   }
 
-
-  /**
-   * Update metrics after successful flush operation.
-   * @private
-   */
-  _updateMetricsAfterSuccess(logCount, duration) {
-    this.metrics.totalLogsInserted += logCount;
-    this.metrics.totalFlushes++;
-    // Optimize average calculation to avoid repeated division
-    this.metrics.avgBatchSize = Math.round(this.metrics.totalLogsInserted / this.metrics.totalFlushes);
-    this.metrics.lastFlushTime = new Date().toISOString();
-    this.metrics.lastFlushSize = logCount;
-  }
-
-
-  /**
-   * Starts the auto-flush timer.
-   * @private
-   */
-  startFlushTimer() {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-    }
-
-    // Always set timer if not shutting down - timer will check buffer on fire
-    // This ensures we never miss a flush even if add() timing is unusual
-    if (!this.isShuttingDown) {
+  _ensureTimerIsRunning() {
+    if (!this.flushTimer && !this.isShuttingDown && this.count > 0) {
       this.flushTimer = setTimeout(() => {
-        if (this.buffer.length > 0) {
-          this.flush().catch(error => {
-            this.logger.error('Timer flush error', { error: error.message });
-          });
-        }
-        // Restart timer for next interval if still running
-        if (!this.isShuttingDown) {
-          this.startFlushTimer();
+        this.flushTimer = null; // Timer fired, clear ref
+        if (this.count > 0) {
+          this._swapAndFlush();
         }
       }, this.maxWaitTime);
     }
   }
 
-  resetFlushTimer() {
-    // Always ensure timer is running after a flush if we're not shutting down
-    // The timer will self-restart on each tick, so just make sure it's active
-    if (!this.isShuttingDown && !this.flushTimer) {
-      this.startFlushTimer();
+  async flush() {
+    if (this.count > 0) {
+      await this._swapAndFlush();
+    }
+    // Wait for ALL active background flushes
+    if (this.activeFlushes.size > 0) {
+      await Promise.all(this.activeFlushes);
     }
   }
 
-  /**
-   * Flushes remaining logs and stops retry strategy.
-   * @returns {Promise<Object>} Result { flushed, failed }.
-   */
   async shutdown() {
     this.logger.info('Shutting down...');
 
@@ -272,31 +278,26 @@ class BatchBuffer {
     }
 
     // Final flush of remaining buffer
-    if (this.buffer.length > 0) {
-      this.logger.info('Final flush of remaining logs', { count: this.buffer.length });
+    if (this.count > 0) {
+      this.logger.info('Final flush of remaining logs', { count: this.count });
 
       try {
-        // Call repository's save method directly
-        await this.repository.save(this.buffer);
-        this._updateMetricsAfterSuccess(this.buffer.length, 0);
-        totalFlushed += this.buffer.length;
-        this.buffer = [];
+        // Reuse internal _flushBuffer and await it
+        await this._flushBuffer(this.activeBuffer, this.count);
+        totalFlushed += this.count;
+        this.activeBuffer = null; // Prevent further use
 
         this.logger.info('Final flush complete');
       } catch (error) {
-        // Queue failed batch for retry using the configured strategy
-        await this.retryStrategy.queueForRetry(this.buffer, error, {
-          repository: this.repository.constructor.name,
-          operation: 'shutdown-flush',
-          bufferConfig: {
-            maxBatchSize: this.maxBatchSize,
-            maxWaitTime: this.maxWaitTime
-          }
-        });
-        totalFailed += this.buffer.length;
-
-        this.logger.error('Final flush failed, queued for retry', { error: error.message });
+        // Error handling is inside _flushBuffer but re-thrown
+        totalFailed += this.count;
       }
+    }
+
+    // Wait for ALL background flushes including the one we might have just started
+    if (this.activeFlushes.size > 0) {
+      this.logger.info(`Waiting for ${this.activeFlushes.size} pending background flushes...`);
+      await Promise.all(this.activeFlushes);
     }
 
     // Shutdown the retry strategy
@@ -313,15 +314,6 @@ class BatchBuffer {
     };
   }
 
-  async forceFlush() {
-    this.logger.info('Force flush requested');
-    return await this.flush();
-  }
-
-  /**
-   * Calculates health metrics.
-   * @returns {Object} Health status { healthy, bufferUsage, errorRate, ... }.
-   */
   getHealth() {
     const now = performance.now();
 
@@ -331,17 +323,17 @@ class BatchBuffer {
     }
 
     // Calculate health metrics
-    const bufferUsage = (this.buffer.length / this.maxBatchSize) * 100;
+    const bufferUsage = (this.count / this.maxBatchSize) * 100;
     const errorRate = this.metrics.totalFlushes > 0
       ? (this.metrics.totalErrors / this.metrics.totalFlushes) * 100
       : 0;
 
     // Determine overall health (consider multiple factors)
-    const healthy = errorRate < 10 && this.buffer.length < this.maxBatchSize * 0.9;
+    const healthy = errorRate < 10 && this.count < this.maxBatchSize * 0.9;
 
     const health = {
       healthy,
-      bufferSize: this.buffer.length,
+      bufferSize: this.count,
       bufferUsage: `${bufferUsage.toFixed(1)}%`,
       errorRate: `${errorRate.toFixed(2)}%`,
       isFlushing: this.isFlushing,

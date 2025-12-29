@@ -1,12 +1,18 @@
 {
-    "ignore": [
-        "performance-results/*",
-        "clickhouse-logs/*",
-        "*.log",
-        "node_modules/*"
-    ],
     "watch": [
         "src"
     ],
-    "ext": "js,json"
+    "ext": "js,json,env",
+    "ignore": [
+        "node_modules",
+        "*.log",
+        "clickhouse-logs",
+        "*.test.js",
+        "*.spec.js",
+        "coverage",
+        ".git"
+    ],
+    "delay": 500,
+    "signal": "SIGTERM",
+    "verbose": false
 }

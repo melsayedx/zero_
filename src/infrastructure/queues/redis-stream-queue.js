@@ -10,12 +10,12 @@ class RedisStreamQueue {
     constructor(redisClient, options = {}) {
         this.redis = redisClient;
         this.logger = options.logger;
-        this.streamKey = options.streamKey || 'logs:stream';
-        this.groupName = options.groupName || 'log-processors';
-        this.consumerName = options.consumerName || `worker-${process.pid}`;
-        this.batchSize = options.batchSize || 2000;
-        this.blockMs = options.blockMs || 100;  // Short block for responsive event loop
-        this.claimMinIdleMs = options.claimMinIdleMs || 30000;
+        this.streamKey = options.streamKey;
+        this.groupName = options.groupName;
+        this.consumerName = options.consumerName;
+        this.batchSize = options.batchSize;
+        this.blockMs = options.blockMs;  // Short block for responsive event loop
+        this.claimMinIdleMs = options.claimMinIdleMs;
 
         this.isInitialized = false;
     }
@@ -26,7 +26,7 @@ class RedisStreamQueue {
         }
 
         try {
-            // Create consumer group (creates stream automatically if MKSTREAM is used)
+            // Create consumer group
             // If group already exists, this will fail silently
             await this.redis.xgroup(
                 'CREATE',
@@ -50,17 +50,11 @@ class RedisStreamQueue {
         // Verify group exists
         try {
             const groups = await this.redis.xinfo('GROUPS', this.streamKey);
-            const groupExists = groups.some(g => {
-                // ioredis returns array of arrays or objects depending on version/config
-                // Usually objects for xinfo in recent versions, but let's check carefully
-                const name = g.name || (Array.isArray(g) ? g[1] : null);
-                return name === this.groupName;
-            });
+            const groupExists = groups.some(g => { return g.name === this.groupName; });
 
             if (!groupExists) {
                 this.logger.error('CRITICAL: Consumer group does not exist after creation!', {
-                    groupName: this.groupName,
-                    groups: JSON.stringify(groups)
+                    groupName: this.groupName
                 });
             } else {
                 this.logger.info('Verified consumer group exists', { groupName: this.groupName });
@@ -69,9 +63,6 @@ class RedisStreamQueue {
             // XINFO might fail if key doesn't exist (but creation should have made it)
             this.logger.warn('Failed to verify consumer group', { error: err.message });
         }
-
-        // Recovery is now handled explicitly by the worker
-        // await this.recoverPendingMessages();
 
         this.isInitialized = true;
 
@@ -88,43 +79,57 @@ class RedisStreamQueue {
      * @returns {Promise<Array>} Recovered messages.
      */
     async recoverPendingMessages() {
-        const recoveredMessages = [];
+        const messageBatches = [];
+        let cursor = '0-0';
+        let totalCount = 0;
 
         try {
-            // Use XAUTOCLAIM to claim stale pending messages
-            // This atomically claims messages that have been idle for too long
-            const result = await this.redis.xautoclaim(
-                this.streamKey,
-                this.groupName,
-                this.consumerName,
-                this.claimMinIdleMs,
-                '0-0', // Start from beginning of pending list
-                'COUNT', this.batchSize
-            );
+            do {
+                const result = await this.redis.xautoclaim(
+                    this.streamKey,
+                    this.groupName,
+                    this.consumerName,
+                    this.claimMinIdleMs,
+                    cursor,
+                    'COUNT', this.batchSize
+                );
 
-            // XAUTOCLAIM returns: [nextId, [[id, fields], ...], deletedIds]
-            if (result && result[1] && result[1].length > 0) {
-                const claimedMessages = result[1];
+                if (!result) break;
 
-                for (const [id, fields] of claimedMessages) {
-                    const message = this._parseMessage(id, fields);
-                    if (message) {
-                        recoveredMessages.push(message);
+                // XAUTOCLAIM returns: [nextId, [[id, fields], ...], deletedIds]
+                const [nextId, claimedMessages,] = result;
+                cursor = nextId;
+
+                if (claimedMessages && claimedMessages.length > 0) {
+                    const batch = new Array(claimedMessages.length);
+                    let validCount = 0;
+
+                    for (let i = 0; i < claimedMessages.length; i++) {
+                        const [id, fields] = claimedMessages[i];
+                        const message = this._parseMessage(id, fields);
+                        if (message) {
+                            batch[validCount++] = message;
+                        }
+                    }
+
+                    // Trim if we had invalid messages
+                    if (validCount < batch.length) {
+                        batch.length = validCount;
+                    }
+
+                    if (validCount > 0) {
+                        messageBatches.push(batch);
+                        totalCount += validCount;
                     }
                 }
+            } while (cursor !== '0-0');
 
-                this.logger.info('Recovered pending messages', { count: recoveredMessages.length });
-            }
+            this.logger.info('Recovered pending messages', { count: totalCount });
         } catch (error) {
-            // XAUTOCLAIM might not be available in older Redis versions
-            if (error.message.includes('unknown command')) {
-                this.logger.warn('XAUTOCLAIM not available, skipping pending recovery');
-            } else {
-                this.logger.error('Error recovering pending messages', { error: error.message });
-            }
+            this.logger.error('Error recovering pending messages', { error: error.message });
         }
 
-        return recoveredMessages;
+        return messageBatches.flat();
     }
 
     /**
@@ -138,14 +143,12 @@ class RedisStreamQueue {
         }
 
         try {
-            // XREADGROUP GROUP groupName consumerName [COUNT count] [BLOCK ms] STREAMS key >
-            // The '>' ID means: only new messages that were never delivered to any consumer
             const result = await this.redis.xreadgroup(
                 'GROUP', this.groupName, this.consumerName,
                 'COUNT', count,
                 'BLOCK', this.blockMs,
                 'STREAMS', this.streamKey,
-                '>' // Only new messages
+                '>'
             );
 
             if (!result || result.length === 0) {
@@ -155,12 +158,12 @@ class RedisStreamQueue {
             // Result format: [[streamKey, [[id, fields], [id, fields], ...]]]
             const [, messages] = result[0];
 
-            const parsedMessages = [];
+            const parsedMessages = new Array(messages.length);
             for (let i = 0; i < messages.length; i++) {
                 const [id, fields] = messages[i];
                 const message = this._parseMessage(id, fields);
                 if (message) {
-                    parsedMessages.push(message);
+                    parsedMessages[i] = message;
                 }
             }
 
@@ -182,6 +185,10 @@ class RedisStreamQueue {
             await this.initialize();
         }
 
+        const messageBatches = [];
+        let currentId = startId;
+        let totalCount = 0;
+
         try {
             this.logger.info('Reading pending messages', {
                 groupName: this.groupName,
@@ -190,31 +197,55 @@ class RedisStreamQueue {
                 startId,
                 streamKey: this.streamKey,
             });
-            // XREADGROUP ... STREAMS key startId
-            // If startId is '0-0', it gets all pending messages > 0-0
-            // If startId is last message ID, it gets next page of pending messages
-            const result = await this.redis.xreadgroup(
-                'GROUP', this.groupName, this.consumerName,
-                'COUNT', count,
-                'STREAMS', this.streamKey,
-                startId
-            );
 
-            if (!result || result.length === 0) {
-                return [];
-            }
+            let lastBatchSize = 0;
 
-            const [, messages] = result[0];
-            const parsedMessages = [];
-            for (let i = 0; i < messages.length; i++) {
-                const [id, fields] = messages[i];
-                const message = this._parseMessage(id, fields);
-                if (message) {
-                    parsedMessages.push(message);
+            do {
+                // XREADGROUP ... STREAMS key startId
+                // If startId is '0-0', it gets all pending messages > 0-0
+                // If startId is last message ID, it gets next page of pending messages
+                const result = await this.redis.xreadgroup(
+                    'GROUP', this.groupName, this.consumerName,
+                    'COUNT', count,
+                    'STREAMS', this.streamKey,
+                    currentId
+                );
+
+                if (!result || result.length === 0 || result[0][1].length === 0) {
+                    lastBatchSize = 0;
+                    continue;
                 }
-            }
-            this.logger.info('Pending messages parsed', { count: parsedMessages.length });
-            return parsedMessages;
+
+                const [, messages] = result[0];
+                lastBatchSize = messages.length;
+
+                const batch = new Array(messages.length);
+                let validCount = 0;
+
+                for (let i = 0; i < messages.length; i++) {
+                    const [id, fields] = messages[i];
+                    const message = this._parseMessage(id, fields);
+                    if (message) {
+                        batch[validCount++] = message;
+                    }
+                }
+
+                // Trim if we had invalid messages
+                if (validCount < batch.length) {
+                    batch.length = validCount;
+                }
+
+                if (validCount > 0) {
+                    messageBatches.push(batch);
+                    totalCount += validCount;
+                }
+
+                // Always advance to the last seen message ID to get the next page
+                currentId = messages[messages.length - 1][0];
+            } while (lastBatchSize > 0);
+
+            this.logger.info('Pending messages parsed', { count: totalCount });
+            return messageBatches.flat();
         } catch (error) {
             this.logger.error('Error reading pending messages', { error: error.message });
             return [];
@@ -239,50 +270,13 @@ class RedisStreamQueue {
                 ...messageIds
             );
 
-            if (acknowledged > 0) {
-                this.logger.debug('Acknowledged messages', { count: acknowledged });
-            }
+            this.logger.debug('Acknowledged messages', { count: acknowledged });
 
             return acknowledged;
         } catch (error) {
             this.logger.error('Error acknowledging messages', { error: error.message });
             throw error;
         }
-    }
-
-    /**
-     * Adds messages to the stream.
-     * @param {Array<Object>} messages - Messages to add.
-     * @returns {Promise<Array<string>>} Assigned IDs.
-     */
-    async add(messages) {
-        if (!messages || messages.length === 0) {
-            return [];
-        }
-
-        const ids = [];
-        const pipeline = this.redis.pipeline();
-
-        for (let i = 0; i < messages.length; i++) {
-            const msg = messages[i];
-            // XADD streamKey MAXLEN ~ 100000 * field value
-            // '~' means approximate trimming (much faster than exact)
-            // 100000 is the limit - older messages are removed from history
-            pipeline.xadd(this.streamKey, 'MAXLEN', '~', 100000, '*', 'data', JSON.stringify(msg));
-        }
-
-        const results = await pipeline.exec();
-
-        for (let i = 0; i < results.length; i++) {
-            const [err, id] = results[i];
-            if (err) {
-                this.logger.error('Error adding message', { error: err.message });
-            } else {
-                ids.push(id);
-            }
-        }
-
-        return ids;
     }
 
     /**
@@ -301,32 +295,14 @@ class RedisStreamQueue {
             };
         } catch (error) {
             this.logger.error('Error getting pending info', { error: error.message });
-            return { pendingCount: 0, consumers: [] };
+            return { pendingCount: 0, firstId: null, lastId: null, consumers: [] };
         }
     }
 
-    /**
-     * Parses raw stream message.
-     * @private
-     */
     _parseMessage(id, fields) {
         try {
-            // Fields is a flat array: ['field1', 'value1', 'field2', 'value2', ...]
-            const fieldMap = {};
-            for (let i = 0; i < fields.length; i += 2) {
-                fieldMap[fields[i]] = fields[i + 1];
-            }
-
-            // We expect a 'data' field with JSON content
-            if (fieldMap.data) {
-                return {
-                    id,
-                    data: JSON.parse(fieldMap.data)
-                };
-            }
-
-            // Fallback: return all fields as data
-            return { id, data: fieldMap };
+            // fields = [id, data]
+            return { id, data: JSON.parse(fields[1]) };
         } catch (error) {
             this.logger.error('Error parsing message', { id, error: error.message });
             return null;

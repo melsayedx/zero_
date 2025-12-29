@@ -15,7 +15,7 @@ const RequestManager = require('../request-processing/request-manager');
 
 const RedisRetryStrategy = require('../retry-strategies/redis-retry-strategy');
 const RedisQueryCache = require('../cache/redis-query.cache');
-const { getRedisClient, closeRedisConnection, redisConfig } = require('../database/redis');
+const { getRedisClient, closeRedisConnection } = require('../database/redis');
 const RedisIdempotencyStore = require('../idempotency/redis-idempotency.store');
 const { LoggerFactory } = require('../logging');
 
@@ -24,7 +24,7 @@ const { LoggerFactory } = require('../logging');
  * @typedef {Object} DIContainerInstances
  * @property {import('../database/clickhouse').ClickHouseClient} clickhouseClient - ClickHouse database client
  * @property {WorkerValidationStrategy} validationService - Validation service with worker threads
- * @property {LogProcessorWorker} logProcessorWorker - Worker to move logs from Redis to ClickHouse
+ * @property {LogProcessorThreadManager} logProcessorThreadManager - Thread manager for Redis-to-ClickHouse workers
  * @property {ClickHouseRepository} clickhouseRepository - ClickHouse repository implementation
  * @property {RedisLogRepository} redisLogRepository - Redis repository implementation
  * @property {RedisLogRepository} logRepository - Default log repository (Redis for ingestion)
@@ -127,7 +127,7 @@ class DIContainer {
       }
     );
 
-    // Note: BatchBuffer is NOT injected here - it's owned by LogProcessorWorker
+    // Note: BatchBuffer is NOT injected here - it's owned by worker threads
     // for crash-proof Redis Stream processing with XACK after ClickHouse insert
 
     this.instances.redisLogRepository = new RedisLogRepository(this.instances.redisClient, {
@@ -173,17 +173,18 @@ class DIContainer {
     // Workers run in separate threads for true CPU isolation from main HTTP thread
     this.instances.logProcessorThreadManager = new LogProcessorThreadManager({
       workerCount: parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 3,
-      redisConfig: redisConfig,
       streamKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
       groupName: process.env.REDIS_CONSUMER_GROUP || 'log-processors',
-      batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 2000,
+      batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 5000,
       maxBatchSize: parseInt(process.env.WORKER_BUFFER_BATCH_SIZE) || 100000,
       maxWaitTime: parseInt(process.env.WORKER_BUFFER_WAIT_TIME) || 1000,
       pollInterval: parseInt(process.env.WORKER_POLL_INTERVAL) || 5,
+      blockMs: parseInt(process.env.WORKER_BLOCK_MS) || 100,
       claimMinIdleMs: parseInt(process.env.WORKER_CLAIM_MIN_IDLE) || 30000,
       retryQueueLimit: parseInt(process.env.WORKER_RETRY_QUEUE_LIMIT) || 10000,
       clickhouseTable: process.env.CLICKHOUSE_TABLE || 'logs',
-      logger: this.logger.child({ component: 'LogProcessorThreadManager' })
+      logger: this.logger.child({ component: 'LogProcessorThreadManager' }),
+      recoveryIntervalMs: parseInt(process.env.WORKER_RECOVERY_INTERVAL_MS) || 10000
     });
 
     // Start all worker threads
@@ -409,7 +410,7 @@ class DIContainer {
   async _cleanupRepositories() {
     this.logger.debug('Cleaning up repositories...');
     // Note: ClickHouseRepository is stateless - no buffer to flush
-    // BatchBuffer cleanup happens in _cleanupWorkers via LogProcessorWorker.stop()
+    // BatchBuffer cleanup happens in _cleanupWorkers via LogProcessorThreadManager.shutdown()
     if (this.instances.clickhouseRetryStrategy) {
       await this.instances.clickhouseRetryStrategy.shutdown();
     }

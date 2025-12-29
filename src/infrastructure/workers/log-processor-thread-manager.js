@@ -14,7 +14,6 @@ class LogProcessorThreadManager {
     /**
      * @param {Object} options Configuration options
      * @param {number} options.workerCount Number of worker threads to spawn
-     * @param {Object} options.redisConfig Redis connection config
      * @param {string} options.streamKey Redis stream key
      * @param {string} options.groupName Consumer group name
      * @param {number} options.batchSize Batch size per read
@@ -46,15 +45,12 @@ class LogProcessorThreadManager {
         this.instanceId = process.env.WORKER_INSTANCE_ID || os.hostname();
     }
 
-    /**
-     * Start all worker threads
-     */
     async start() {
         this.logger.info('Starting worker threads', { count: this.workerCount });
 
-        const startPromises = [];
+        const startPromises = new Array(this.workerCount);
         for (let i = 0; i < this.workerCount; i++) {
-            startPromises.push(this.spawnWorker(i));
+            startPromises[i] = this.spawnWorker(i);
         }
 
         await Promise.all(startPromises);
@@ -70,19 +66,13 @@ class LogProcessorThreadManager {
         // instanceId is unique per process (hostname-pid or WORKER_INSTANCE_ID)
         const consumerName = `worker-${this.instanceId}-${index}`;
 
-        // Extract only serializable properties from redisConfig
-        // Functions like retryStrategy and reconnectOnError cannot be cloned
-        const serializableRedisConfig = {
-            host: this.options.redisConfig.host,
-            port: this.options.redisConfig.port,
-            password: this.options.redisConfig.password,
-            db: this.options.redisConfig.db
-        };
+        // Thread 0 is dedicated to recovery (XAUTOCLAIM), rest are consumers (XREADGROUP)
+        const workerRole = index === 0 ? 'recovery' : 'consumer';
 
         const workerData = {
             workerIndex: index,
             consumerName,
-            redisConfig: serializableRedisConfig,
+            workerRole,
             streamKey: this.options.streamKey,
             groupName: this.options.groupName,
             batchSize: this.options.batchSize,
@@ -90,8 +80,10 @@ class LogProcessorThreadManager {
             maxWaitTime: this.options.maxWaitTime,
             pollInterval: this.options.pollInterval,
             claimMinIdleMs: this.options.claimMinIdleMs,
+            blockMs: this.options.blockMs,
             retryQueueLimit: this.options.retryQueueLimit,
-            clickhouseTable: this.options.clickhouseTable
+            clickhouseTable: this.options.clickhouseTable,
+            recoveryIntervalMs: this.options.recoveryIntervalMs
         };
 
         return new Promise((resolve, reject) => {
@@ -105,7 +97,6 @@ class LogProcessorThreadManager {
                 this.restartCounts.set(index, 0);
             }
 
-            // Handle ready signal
             const readyHandler = (message) => {
                 if (message.type === 'ready') {
                     this.logger.info('Worker thread ready', { index, consumerName });
@@ -117,18 +108,17 @@ class LogProcessorThreadManager {
             };
             worker.on('message', readyHandler);
 
-            // Handle errors
             worker.on('error', (error) => {
                 this.logger.error('Worker thread error', { index, error: error.message });
             });
 
-            // Handle exit - auto-restart with exponential backoff
+            // Handle exit - Auto-restart with exponential backoff
             worker.on('exit', (code) => {
                 this.workers.delete(index);
 
                 if (code !== 0 && !this.isShuttingDown) {
                     const restartCount = this.restartCounts.get(index) || 0;
-                    const delay = Math.min(1000 * Math.pow(2, restartCount), 30000); // Max 30s
+                    const delay = Math.min(1000 * Math.pow(2, restartCount), 30000);
 
                     this.logger.warn('Worker thread crashed, restarting', {
                         index,
@@ -151,7 +141,6 @@ class LogProcessorThreadManager {
                 }
             });
 
-            // Timeout for ready signal
             setTimeout(() => {
                 if (!this.workers.has(index)) {
                     reject(new Error(`Worker ${index} failed to start within timeout`));
@@ -164,21 +153,24 @@ class LogProcessorThreadManager {
      * Get health status from all workers
      */
     async getHealth() {
-        const healthPromises = [];
+        const healthPromises = new Array(this.workerCount);
 
-        for (const [index, worker] of this.workers) {
+        for (let i = 0; i < this.workerCount; i++) {
+            const worker = this.workers.get(i);
+            if (!worker) continue;
+
             healthPromises.push(
                 new Promise((resolve) => {
                     const requestId = Date.now();
                     const timeout = setTimeout(() => {
-                        resolve({ index, healthy: false, error: 'timeout' });
+                        resolve({ index: i, healthy: false, error: 'timeout' });
                     }, 5000);
 
                     const handler = (message) => {
                         if (message.type === 'health_response' && message.requestId === requestId) {
                             clearTimeout(timeout);
                             worker.off('message', handler);
-                            resolve({ index, healthy: true, ...message.data });
+                            resolve({ index: i, healthy: true, ...message.data });
                         }
                     };
 
@@ -196,21 +188,21 @@ class LogProcessorThreadManager {
         };
     }
 
-    /**
-     * Graceful shutdown of all workers
-     */
     async shutdown() {
         this.logger.info('Shutting down all worker threads...');
         this.isShuttingDown = true;
 
-        const shutdownPromises = [];
+        const shutdownPromises = new Array(this.workerCount);
 
-        for (const [index, worker] of this.workers) {
+        for (let i = 0; i < this.workerCount; i++) {
+            const worker = this.workers.get(i);
+            if (!worker) continue;
+
             shutdownPromises.push(
                 new Promise((resolve) => {
                     const requestId = Date.now();
                     const timeout = setTimeout(() => {
-                        this.logger.warn('Worker shutdown timeout, terminating', { index });
+                        this.logger.warn('Worker shutdown timeout, terminating', { index: i });
                         worker.terminate();
                         resolve();
                     }, 10000);
@@ -219,7 +211,7 @@ class LogProcessorThreadManager {
                         if (message.type === 'shutdown_complete' && message.requestId === requestId) {
                             clearTimeout(timeout);
                             worker.off('message', handler);
-                            this.logger.info('Worker shutdown complete', { index });
+                            this.logger.info('Worker shutdown complete', { index: i });
                             resolve();
                         }
                     };
@@ -237,3 +229,4 @@ class LogProcessorThreadManager {
 }
 
 module.exports = LogProcessorThreadManager;
+
