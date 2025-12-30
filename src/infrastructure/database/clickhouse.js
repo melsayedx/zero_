@@ -49,7 +49,7 @@ function createClickHouseClient() {
       min_insert_block_size_bytes: 268435456,       // 256MB minimum block size
 
       // === Memory & Processing ===
-      max_memory_usage: 10737418240,                // 10GB memory limit per query
+      max_memory_usage: 6442450944,                 // 6GB memory limit per query
       max_threads: 2,                               // Max threads per query
       use_uncompressed_cache: 1,                    // Enable cache for faster reads  
 

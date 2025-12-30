@@ -11,11 +11,7 @@ const path = require('path');
 const { LoggerFactory } = require('./infrastructure/logging');
 
 // Initialize bootstrap logger
-const logger = LoggerFactory.getInstance({
-  mode: process.env.LOG_MODE || 'null',
-  level: process.env.LOG_LEVEL || 'info',
-  pretty: process.env.LOG_PRETTY === 'true',
-}).child({ component: 'Bootstrap' });
+const logger = LoggerFactory.child({ component: 'Bootstrap' });
 
 /**
  * Create application instance
@@ -120,6 +116,11 @@ async function createApp(options = {}) {
 
   // Error handler
   app.setErrorHandler((error, request, reply) => {
+    // Ignore 'aborted' errors - expected during load testing when clients close connections
+    if (error.message === 'aborted') {
+      return reply.code(499).send(); // 499 = Client Closed Request
+    }
+
     logger.error('Unhandled error', { error, url: request.url, method: request.method });
     return reply.code(500).send({
       success: false,

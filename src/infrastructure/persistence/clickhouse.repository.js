@@ -5,6 +5,7 @@ const InMemoryQueryCache = require('../../infrastructure/cache/in-memory-query.c
  * Log repository implementation for ClickHouse with batching and query support.
  * @implements {LogRepositoryContract}
  */
+// TODO: refactor jsdoc review
 class ClickHouseRepository extends LogRepositoryContract {
   /**
    * @param {Object} client - ClickHouse client.

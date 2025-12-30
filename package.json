@@ -23,7 +23,15 @@
     "benchmark:coalesce": "node benchmark/stages/03-coalescing.js",
     "benchmark:pipeline": "node benchmark/stages/04-redis-streams.js",
     "benchmark:workers": "node benchmark/stages/05-worker-threads.js",
-    "benchmark:report": "node benchmark/generate-report.js"
+    "benchmark:report": "node benchmark/generate-report.js",
+    "benchmark:network": "node benchmark/network/run-all.js",
+    "benchmark:network:http1:light": "node benchmark/network/http-benchmark.js --http1 --light",
+    "benchmark:network:http1:intensive": "node benchmark/network/http-benchmark.js --http1 --intensive",
+    "benchmark:network:http2:light": "node benchmark/network/http-benchmark.js --http2 --light",
+    "benchmark:network:http2:intensive": "node benchmark/network/http-benchmark.js --http2 --intensive",
+    "benchmark:http1": "NODE_ENV=production node benchmark/http/autocannon-runner.js --protocol=http1",
+    "benchmark:http2": "NODE_ENV=production node benchmark/http/autocannon-runner.js --protocol=http2",
+    "benchmark:http:all": "NODE_ENV=production node benchmark/http/autocannon-runner.js --all"
   },
   "keywords": [
     "logs",
@@ -44,6 +52,7 @@
     "@huggingface/transformers": "^3.5.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "colors": "^1.4.0",
     "fastify": "^5.6.2",
     "google-protobuf": "^4.0.1",
     "ioredis": "^5.8.2",
@@ -51,6 +60,7 @@
     "protobufjs": "^7.5.4"
   },
   "devDependencies": {
+    "autocannon": "^8.0.0",
     "chart.js": "^4.5.1",
     "grpc-tools": "^1.13.1",
     "nodemon": "^3.1.11",

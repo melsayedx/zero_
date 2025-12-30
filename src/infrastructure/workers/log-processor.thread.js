@@ -131,7 +131,11 @@ async function processPending() {
 async function processMessages(messages) {
     if (!messages || messages.length === 0) return;
 
-    const logEntries = messages.map(msg => ({ ...msg.data, _redisId: msg.id }));
+    // Filter out null messages (failed JSON parses) and map to log entries
+    const logEntries = messages
+        .filter(msg => msg && msg.data) // Skip null/malformed messages
+        .map(msg => ({ ...msg.data, _redisId: msg.id }));
+
     if (logEntries.length > 0) {
         // In rare cases where there is a massive batch that exceeds 
         // the buffer size (e.g., 200k logs > 100k buffer), add() recursively

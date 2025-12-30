@@ -47,23 +47,6 @@ class RedisStreamQueue {
             this.logger.debug('Consumer group already exists (BUSYGROUP)', { groupName: this.groupName });
         }
 
-        // Verify group exists
-        try {
-            const groups = await this.redis.xinfo('GROUPS', this.streamKey);
-            const groupExists = groups.some(g => { return g.name === this.groupName; });
-
-            if (!groupExists) {
-                this.logger.error('CRITICAL: Consumer group does not exist after creation!', {
-                    groupName: this.groupName
-                });
-            } else {
-                this.logger.info('Verified consumer group exists', { groupName: this.groupName });
-            }
-        } catch (err) {
-            // XINFO might fail if key doesn't exist (but creation should have made it)
-            this.logger.warn('Failed to verify consumer group', { error: err.message });
-        }
-
         this.isInitialized = true;
 
         this.logger.info('RedisStreamQueue initialized', {

@@ -20,7 +20,7 @@ async function setupRoutes(fastify, controllers, rootLogger) {
     controllers.idempotencyStore,
     rootLogger.child({ component: 'IdempotencyCheck' }),
     {
-      enforce: true
+      enforce: process.env.ENFORCE_IDEMPOTENCY === 'true'
     }
   );
 

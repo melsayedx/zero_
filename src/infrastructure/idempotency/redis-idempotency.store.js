@@ -4,8 +4,9 @@ const IdempotencyContract = require('../../domain/contracts/idempotency.contract
  * Redis-backed idempotency store using atomic operations.
  * 
  * In set method, if key exists, it will not be overwritten
- * unless force option is set to true. This is to prevent
- * in-flight requests from doing duplicate work.
+ * unless force option is set to true. This implements 
+ * in-flight locking to prevent race conditions when duplicate
+ * requests arrive before the first one completes.
  *
  * @example
  * const store = new RedisIdempotencyStore(redisClient);

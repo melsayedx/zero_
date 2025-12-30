@@ -11,7 +11,7 @@ class LogEntry {
     user_id: { optional: true }
   };
 
-  static REQUIRED_FIELDS = ['app_id', 'message', 'level', 'source'];
+  static REQUIRED_FIELDS = ['app_id', 'message', 'level', 'source', 'environment'];
 
   /**
    * Asynchronously processes a batch of log entries with validation.

@@ -3,7 +3,7 @@
  * Selects sync, single worker, or parallel workers based on batch size.
  * Composite Pattern
  */
-
+// TODO: refactor jsdoc review
 const WorkerPool = require('../workers/worker-pool');
 const ValidationStrategyContract = require('../../domain/contracts/validation-strategy.contract');
 const SyncValidationStrategy = require('./sync-validation.strategy');

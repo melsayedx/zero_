@@ -163,8 +163,8 @@ class DIContainer {
       enableWorkerValidation: process.env.ENABLE_WORKER_VALIDATION === 'true',
       forceWorkerValidation: process.env.FORCE_WORKER_VALIDATION === 'true',
       workerPool: {
-        minWorkers: parseInt(process.env.WORKER_POOL_MIN_WORKERS) || 2,
-        maxWorkers: parseInt(process.env.WORKER_POOL_MAX_WORKERS) || Math.min(require('os').cpus().length, 8) / 2,
+        minWorkers: parseInt(process.env.WORKER_POOL_MIN_WORKERS) || 1,
+        maxWorkers: parseInt(process.env.WORKER_POOL_MAX_WORKERS) || 2,
         taskTimeout: parseInt(process.env.WORKER_TASK_TIMEOUT) || 30000
       }
     });
@@ -172,7 +172,7 @@ class DIContainer {
     // Initialize Log Processor Thread Manager
     // Workers run in separate threads for true CPU isolation from main HTTP thread
     this.instances.logProcessorThreadManager = new LogProcessorThreadManager({
-      workerCount: parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 3,
+      workerCount: parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 2,
       streamKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
       groupName: process.env.REDIS_CONSUMER_GROUP || 'log-processors',
       batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 5000,
@@ -410,7 +410,7 @@ class DIContainer {
   async _cleanupRepositories() {
     this.logger.debug('Cleaning up repositories...');
     // Note: ClickHouseRepository is stateless - no buffer to flush
-    // BatchBuffer cleanup happens in _cleanupWorkers via LogProcessorThreadManager.shutdown()
+    // BatchBuffer cleanup happens in _cleanupWorkers via LogProcessorWorker.stop()
     if (this.instances.clickhouseRetryStrategy) {
       await this.instances.clickhouseRetryStrategy.shutdown();
     }

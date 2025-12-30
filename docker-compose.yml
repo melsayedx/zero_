@@ -27,15 +27,14 @@ services:
       timeout: 5s
       retries: 5
     # Resource limits (adjust based on your hardware)
-    # Recommended: 8+ cores, 32GB+ RAM for 100k/sec throughput
     deploy:
       resources:
         limits:
-          cpus: '6'
-          memory: 24G
-        reservations:
           cpus: '4'
-          memory: 16G
+          memory: 14G
+        reservations:
+          cpus: '2'
+          memory: 10G
 
   redis:
     image: redis:alpine
@@ -54,11 +53,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1G
+          cpus: '2'
+          memory: 2G
         reservations:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '1'
+          memory: 512M
 
 volumes:
   clickhouse_data:

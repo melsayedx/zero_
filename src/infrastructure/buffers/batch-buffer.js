@@ -57,14 +57,15 @@ class BatchBuffer {
       totalErrors: 0,
       avgBatchSize: 0,
       lastFlushTime: null,
-      lastFlushSize: 0
+      lastFlushSize: 0,
+      lastFlushDuration: 0
     };
 
     this._cachedHealth = null;
     this._healthCacheTime = 0;
     this._healthCacheTTL = 5000;
 
-    this.startFlushTimer();
+    this._ensureTimerIsRunning();
   }
 
   /**
@@ -113,11 +114,6 @@ class BatchBuffer {
     }
   }
 
-  /**
-   * Internal helper: Swaps active buffer and triggers background flush.
-   * returning immediately.
-   * @private
-   */
   /**
    * Internal helper: Swaps active buffer and triggers background flush.
    * returning immediately unless backpressure is active.
@@ -241,6 +237,22 @@ class BatchBuffer {
     } finally {
       this.isFlushing = false;
     }
+  }
+
+  /**
+   * Updates metrics after a successful flush.
+   * @param {number} count - Number of logs flushed.
+   * @param {number} duration - Flush duration in ms.
+   * @private
+   */
+  _updateMetricsAfterSuccess(count, duration) {
+    this.metrics.totalLogsInserted += count;
+    this.metrics.totalFlushes++;
+    this.metrics.lastFlushTime = new Date().toISOString();
+    this.metrics.lastFlushSize = count;
+    this.metrics.lastFlushDuration = duration;
+    // Optimize average calculation to avoid repeated division
+    this.metrics.avgBatchSize = Math.round(this.metrics.totalLogsInserted / this.metrics.totalFlushes);
   }
 
   _ensureTimerIsRunning() {
