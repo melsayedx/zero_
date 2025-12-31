@@ -132,5 +132,5 @@ Latest results running `benchmark/http/autocannon-runner.js`:
 - **RAM:** 32GB
 - **Runtime:** Docker Container + Node.js 22+
 
-![Benchmark Results 6k+](benchmark/6k+.png)
-![Benchmark Results 17k+](benchmark/17k+.png)
+![Benchmark Results 6k+](benchmark/baseline_6k.png)
+![Benchmark Results 17k+](benchmark/optimized_17k.png)
