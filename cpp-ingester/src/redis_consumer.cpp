@@ -67,7 +67,9 @@ bool RedisConsumer::ensure_consumer_group() {
     return false;
 }
 
-size_t RedisConsumer::read_batch(LockFreeRingBuffer<LogEntry>& buffer) {
+size_t RedisConsumer::read_batch(std::vector<std::unique_ptr<LockFreeRingBuffer<LogEntry>>>& buffers) {
+    if (buffers.empty()) return 0;
+    
     // No lock needed here! Only one reader thread uses redis_read_
     
     std::string block_str = std::to_string(config_.block_ms);
@@ -134,11 +136,29 @@ size_t RedisConsumer::read_batch(LockFreeRingBuffer<LogEntry>& buffer) {
                             if (strcmp(keyReply->str, "data") == 0) {
                                 try {
                                     LogEntry entry = parse_message(valReply->str, valReply->len, msg_id);
-                                    if (buffer.try_push(std::move(entry))) {
-                                        ++count;
-                                    } else {
-                                        break;
+                                    
+                                    // Round-robin distribution
+                                    // Try current buffer, if full, try next one
+                                    bool pushed = false;
+                                    size_t start_idx = current_buffer_idx_;
+                                    
+                                    do {
+                                        if (buffers[current_buffer_idx_]->try_push(std::move(entry))) {
+                                            pushed = true;
+                                            current_buffer_idx_ = (current_buffer_idx_ + 1) % buffers.size();
+                                            ++count;
+                                            break;
+                                        }
+                                        current_buffer_idx_ = (current_buffer_idx_ + 1) % buffers.size();
+                                    } while (current_buffer_idx_ != start_idx);
+                                    
+                                    if (!pushed) {
+                                        // All buffers full, drop message or block?
+                                        // For high throughput, we drop but log error (or backpressure logic)
+                                        // Simple version: just stop reading this batch
+                                        break; 
                                     }
+
                                 } catch (const std::exception& e) {
                                     ++parse_errors_;
                                 }
@@ -243,7 +263,9 @@ void RedisConsumer::ack_batch(const std::vector<std::string>& ids) {
     }
 }
 
-size_t RedisConsumer::recover_pending(LockFreeRingBuffer<LogEntry>& buffer) {
+size_t RedisConsumer::recover_pending(std::vector<std::unique_ptr<LockFreeRingBuffer<LogEntry>>>& buffers) {
+    if (buffers.empty()) return 0;
+
     // Can use read connection here safely since main loop hasn't started
     // OR use write connection. Let's use read connection to keep "reading" logic together.
     
@@ -301,9 +323,21 @@ size_t RedisConsumer::recover_pending(LockFreeRingBuffer<LogEntry>& buffer) {
                             if (strcmp(keyReply->str, "data") == 0) {
                                 try {
                                     LogEntry entry = parse_message(valReply->str, valReply->len, msg_id);
-                                    if (buffer.try_push(std::move(entry))) {
-                                        ++count;
-                                    }
+                                    
+                                    // Round-robin
+                                    bool pushed = false;
+                                    size_t start_idx = current_buffer_idx_;
+                                    
+                                    do {
+                                        if (buffers[current_buffer_idx_]->try_push(std::move(entry))) {
+                                            pushed = true;
+                                            current_buffer_idx_ = (current_buffer_idx_ + 1) % buffers.size();
+                                            ++count;
+                                            break;
+                                        }
+                                        current_buffer_idx_ = (current_buffer_idx_ + 1) % buffers.size();
+                                    } while (current_buffer_idx_ != start_idx);
+                                    
                                 } catch (...) {
                                     ++parse_errors_;
                                 }

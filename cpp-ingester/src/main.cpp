@@ -42,7 +42,12 @@ int main(int argc, char** argv) {
     signal(SIGTERM, signal_handler);
     
     // Create components
-    LockFreeRingBuffer<LogEntry> buffer(config.ring_buffer_size);
+    std::vector<std::unique_ptr<LockFreeRingBuffer<LogEntry>>> buffers;
+    buffers.reserve(config.writer_threads);
+    for (int i = 0; i < config.writer_threads; ++i) {
+        buffers.push_back(std::make_unique<LockFreeRingBuffer<LogEntry>>(config.ring_buffer_size));
+    }
+    
     RedisConsumer consumer(config);
     ClickHouseWriter writer(config);
     
@@ -58,13 +63,13 @@ int main(int argc, char** argv) {
     };
     
     // Start writer threads
-    if (!writer.start(buffer, on_flush)) {
+    if (!writer.start(buffers, on_flush)) {
         std::cerr << "Failed to start writer threads\n";
         return 1;
     }
     
     // Recover any pending messages from previous runs
-    size_t recovered = consumer.recover_pending(buffer);
+    size_t recovered = consumer.recover_pending(buffers);
     if (recovered > 0) {
         std::cout << "Recovered " << recovered << " pending messages\n";
     }
@@ -76,7 +81,7 @@ int main(int argc, char** argv) {
     // Main read loop
     std::cout << "Starting ingestion...\n";
     while (g_running.load() && consumer.is_running()) {
-        size_t read = consumer.read_batch(buffer);
+        size_t read = consumer.read_batch(buffers);
         total_read += read;
         
         // Benchmark mode: exit after target count
@@ -86,9 +91,12 @@ int main(int argc, char** argv) {
         
         // Progress reporting every 10k logs
         if (total_read % 10000 < config.read_batch_size) {
+            size_t total_buffer = 0;
+            for (const auto& buf : buffers) total_buffer += buf->size();
+            
             std::cout << "Read: " << total_read 
                       << " | Written: " << writer.logs_written()
-                      << " | Buffer: " << buffer.size() << "\n";
+                      << " | Buffer: " << total_buffer << "\n";
         }
     }
     

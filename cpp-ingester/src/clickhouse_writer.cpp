@@ -13,14 +13,19 @@ ClickHouseWriter::~ClickHouseWriter() {
     stop();
 }
 
-bool ClickHouseWriter::start(LockFreeRingBuffer<LogEntry>& buffer, OnFlushCallback on_flush) {
+bool ClickHouseWriter::start(std::vector<std::unique_ptr<LockFreeRingBuffer<LogEntry>>>& buffers, OnFlushCallback on_flush) {
     if (running_.load()) return false;
     running_.store(true);
+    
+    if (buffers.size() != config_.writer_threads) {
+        std::cerr << "Error: Buffer count (" << buffers.size() << ") != Writer threads (" << config_.writer_threads << ")\n";
+        return false;
+    }
     
     // Start writer threads
     for (int i = 0; i < config_.writer_threads; ++i) {
         threads_.emplace_back(&ClickHouseWriter::writer_thread, this, i, 
-                              std::ref(buffer), on_flush);
+                              buffers[i].get(), on_flush);
     }
     
     std::cout << "Started " << config_.writer_threads << " writer threads\n";
@@ -43,7 +48,7 @@ void ClickHouseWriter::flush() {
     // Let threads naturally drain their buffers
 }
 
-void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>& buffer, 
+void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>* buffer, 
                                       OnFlushCallback on_flush) {
     // Each thread has its own ClickHouse connection
     ClientOptions options;
@@ -69,9 +74,9 @@ void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>
     std::vector<LogEntry> batch;
     batch.reserve(config_.batch_size);
     
-    while (running_.load() || !buffer.empty()) {
+    while (running_.load() || !buffer->empty()) {
         // Pop logs from ring buffer
-        size_t popped = buffer.pop_batch(batch, config_.batch_size - batch.size());
+        size_t popped = buffer->pop_batch(batch, config_.batch_size - batch.size());
         
         // Flush when batch is full or timeout (simple: just check size)
         if (batch.size() >= config_.batch_size) {

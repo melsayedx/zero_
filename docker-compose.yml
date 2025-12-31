@@ -31,10 +31,10 @@ services:
       resources:
         limits:
           cpus: '4'
-          memory: 14G
+          memory: 10G
         reservations:
           cpus: '2'
-          memory: 10G
+          memory: 8G
 
   redis:
     image: redis:alpine

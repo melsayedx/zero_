@@ -38,10 +38,10 @@ public:
     bool connect();
     
     /**
-     * Read messages and push to buffer
+     * Read messages and distribute to buffers round-robin
      * Returns number of messages read
      */
-    size_t read_batch(LockFreeRingBuffer<LogEntry>& buffer);
+    size_t read_batch(std::vector<std::unique_ptr<LockFreeRingBuffer<LogEntry>>>& buffers);
     
     /**
      * Acknowledge processed messages
@@ -51,7 +51,7 @@ public:
     /**
      * Process pending messages (crash recovery)
      */
-    size_t recover_pending(LockFreeRingBuffer<LogEntry>& buffer);
+    size_t recover_pending(std::vector<std::unique_ptr<LockFreeRingBuffer<LogEntry>>>& buffers);
     
     /**
      * Get current stream length
@@ -74,6 +74,7 @@ private:
     // Stats
     std::atomic<size_t> messages_read_{0};
     std::atomic<size_t> parse_errors_{0};
+    size_t current_buffer_idx_{0};
 };
 
 } // namespace ingester

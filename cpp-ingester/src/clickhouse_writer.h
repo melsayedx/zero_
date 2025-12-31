@@ -35,7 +35,7 @@ public:
     /**
      * Initialize connections and start writer threads
      */
-    bool start(LockFreeRingBuffer<LogEntry>& buffer, OnFlushCallback on_flush);
+    bool start(std::vector<std::unique_ptr<LockFreeRingBuffer<LogEntry>>>& buffers, OnFlushCallback on_flush);
     
     /**
      * Stop writer threads and flush remaining data
@@ -53,7 +53,7 @@ public:
     size_t errors() const { return errors_.load(); }
     
 private:
-    void writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>& buffer, OnFlushCallback on_flush);
+    void writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>* buffer, OnFlushCallback on_flush);
     bool write_batch(const std::vector<LogEntry>& batch, int thread_id);
     
     const Config& config_;

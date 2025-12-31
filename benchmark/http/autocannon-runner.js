@@ -166,7 +166,7 @@ async function main() {
     } else {
         // Default to batch 100 if single run, or use provided argument
         const batchArg = args.find(a => a.startsWith('--batch='));
-        const batchSize = batchArg ? parseInt(batchArg.split('=')[1]) : 100;
+        const batchSize = batchArg ? parseInt(batchArg.split('=')[1]) : 1;
         await runBenchmark(batchSize, isHttp2);
     }
 }

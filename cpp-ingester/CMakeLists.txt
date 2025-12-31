@@ -26,7 +26,7 @@ pkg_check_modules(HIREDIS REQUIRED hiredis)
 FetchContent_Declare(
     clickhouse-cpp
     GIT_REPOSITORY https://github.com/ClickHouse/clickhouse-cpp.git
-    GIT_TAG        v2.5.1
+    GIT_TAG        v2.6.0
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(clickhouse-cpp)
