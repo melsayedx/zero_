@@ -98,7 +98,7 @@ We moved beyond simple text search (`grep`) to **Semantic Understanding**.
 ---
 
 ## Tech Stack
-*   **Runtime**: Node.js 18+ (Cluster Mode + Worker Threads)
+*   **Runtime**: Node.js 22+ (Cluster Mode + Worker Threads)
 *   **Protocols**: HTTP/1.1, HTTP/2 (Multiplexing), gRPC (Protobufs)
 *   **Storage**: ClickHouse (OLAP), Redis (Streams/Caching)
 *   **Containerization**: Docker Compose
