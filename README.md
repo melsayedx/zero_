@@ -126,5 +126,11 @@ Latest results running `benchmark/http/autocannon-runner.js`:
 
 > **Note:** Optimized run uses Node.js Cluster Mode (All cores) + Worker Threads + Redis Streams buffering.
 
-![Benchmark Results 6k+](https://github.com/melsayedx/zero_/tree/master/benchmark/6k+.png)
-![Benchmark Results 17k+](https://github.com/melsayedx/zero_/tree/master/benchmark/17k+.png)
+**Benchmark Environment:**
+- **OS:** macOS
+- **CPU:** 8-Core
+- **RAM:** 32GB
+- **Runtime:** Docker Container + Node.js 22+
+
+![Benchmark Results 6k+](benchmark/6k+.png)
+![Benchmark Results 17k+](benchmark/17k+.png)
