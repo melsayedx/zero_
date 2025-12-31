@@ -12,7 +12,6 @@ The core philosophy of this project is iterative optimization. We didn't just bu
 
 ### Stage 1: Baseline (I/O Bottleneck)
 **Implementation:** Synchronous ClickHouse inserts.
-**Improvement:** 1.0x (Baseline)
 **Analysis:** This stage established the "floor." Throughput was limited by network round-trip time (RTT). The Node.js event loop spent most of its time idle, waiting for database acknowledgments.
 
 ### Stage 2: Fire-and-Forget (Naive Concurrency)
@@ -29,7 +28,6 @@ The core philosophy of this project is iterative optimization. We didn't just bu
 **Technique:**
 *   **Request Coalescing**: Gathering multiple incoming HTTP requests into a single in-memory batch.
 *   **Double Buffer Pattern**: Using two switched arrays (Ping-Pong) to accumulate data without allocating new buffers constantly.
-**Improvement:** 0.1x (Degraded)
 **Analysis:** This stage moved the bottleneck from I/O to CPU. While we saved network calls, the overhead of managing thousands of tiny batches in JavaScript (parsing JSON, managing accumulation timers) blocked the main event loop. This proved that application-level batching in a single thread has limits.
 
 ### Stage 4: Redis Streams (Durable Buffering)
@@ -37,7 +35,6 @@ The core philosophy of this project is iterative optimization. We didn't just bu
 **Technique:**
 *   **Producer-Consumer**: API writes to Redis Streams (memory speed) and returns immediately.
 *   **Durable Buffering**: Data is persisted in Redis before processing, preventing data loss.
-**Improvement:** 5.7x
 **Analysis:** This was the breakthrough. By removing the database entirely from the hot path and using Redis as a high-speed buffer, we achieved massive throughput. The bottleneck shifted entirely to how fast Node.js could parse requests.
 
 ### Stage 5: Worker Threads & Clusters (Zero-Copy & CPU Offloading)
@@ -46,7 +43,6 @@ The core philosophy of this project is iterative optimization. We didn't just bu
 *   **Cluster Mode**: Spawning one process per CPU core to utilize the full machine resources.
 *   **Worker Threads**: Offloading CPU-heavy validation (AJV schema checks) to separate threads, keeping the main event loop free for I/O.
 *   **Zero-Copy Operations**: Careful transfer of data buffers between threads and network to minimize memory copy overhead.
-**Improvement:** 7.2x
 **Analysis:** The final architecture combines all previous lessons. We maximize I/O with Redis/Clusters and maximize CPU with Worker Threads.
 
 ---
@@ -86,18 +82,6 @@ The core philosophy of this project is iterative optimization. We didn't just bu
 ## Architecture Principles
 
 The codebase follows strict **Onion Architecture** to ensure the core logic is immune to infrastructure changes.
-
-```mermaid
-graph TD
-    User((User)) --> API[Adapters: HTTP/gRPC]
-    API --> App[Application Layer: Use Cases]
-    App --> Domain[Domain Layer: Pure Logic]
-    
-    subgraph "Infrastructure Layer (Pluggable)"
-        App -.-> ClickHouse[Repository: ClickHouse]
-        App -.-> Redis[Repository: Redis]
-    end
-```
 
 *   **Domain**: Defines `LogEntry` entity and `LogRepository` interface.
 *   **Application**: Contains `IngestLog` use case. It knows *what* to do, not *how* to save it.
@@ -142,30 +126,5 @@ Latest results running `benchmark/http/autocannon-runner.js`:
 
 > **Note:** Optimized run uses Node.js Cluster Mode (All cores) + Worker Threads + Redis Streams buffering.
 
-![Benchmark Results](https://raw.githubusercontent.com/MuhammadElSayedX/zero_/master/uploaded_image_1_1767205503055.png)
-
----
-
-## License
-
-MIT License
-
-Copyright (c) 2024 Zero Log Ingest
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+![Benchmark Results 6k+](https://github.com/melsayedx/zero_/tree/master/benchmark/6k+.png)
+![Benchmark Results 17k+](https://github.com/melsayedx/zero_/tree/master/benchmark/17k+.png)
