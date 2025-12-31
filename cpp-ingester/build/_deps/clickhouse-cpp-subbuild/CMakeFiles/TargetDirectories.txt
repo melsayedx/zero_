@@ -1,3 +1,0 @@
-/Users/mody/zero_/cpp-ingester/build/_deps/clickhouse-cpp-subbuild/CMakeFiles/clickhouse-cpp-populate.dir
-/Users/mody/zero_/cpp-ingester/build/_deps/clickhouse-cpp-subbuild/CMakeFiles/edit_cache.dir
-/Users/mody/zero_/cpp-ingester/build/_deps/clickhouse-cpp-subbuild/CMakeFiles/rebuild_cache.dir

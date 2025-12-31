@@ -1,2 +1,0 @@
-/Library/Developer/CommandLineTools/usr/bin/ar qc libabsl_int128.a CMakeFiles/absl_int128.dir/numeric/int128.cc.o
-/Library/Developer/CommandLineTools/usr/bin/ranlib libabsl_int128.a
