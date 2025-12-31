@@ -33,6 +33,7 @@ Config Config::from_env() {
     // Performance
     cfg.batch_size = get_env_int("BATCH_SIZE", cfg.batch_size);
     cfg.writer_threads = get_env_int("WRITER_THREADS", cfg.writer_threads);
+    cfg.polling_interval_ms = get_env_int("POLLING_INTERVAL_MS", cfg.polling_interval_ms);
     
     return cfg;
 }

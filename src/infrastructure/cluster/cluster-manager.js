@@ -34,9 +34,7 @@ class ClusterManager extends EventEmitter {
     this.numWorkers = options.numWorkers || os.cpus().length;
     this.minWorkers = options.minWorkers || Math.max(1, Math.floor(this.numWorkers / 2));
     this.maxWorkers = options.maxWorkers || this.numWorkers * 2;
-    this.workerRestartDelay = options.workerRestartDelay || 5000;
-    this.gracefulShutdownTimeout = options.gracefulShutdownTimeout || 30000;
-    this.healthCheckInterval = options.healthCheckInterval || 30000;
+    this.rollingRestartDelay = options.rollingRestartDelay || 2000;
     this.workerMemoryLimit = options.workerMemoryLimit || 1024 * 1024 * 1024; // 1GB default
 
     // State
@@ -59,7 +57,7 @@ class ClusterManager extends EventEmitter {
   /**
    * Start the cluster
    */
-  start() {
+  async start() {
     if (!cluster.isMaster && !cluster.isPrimary) {
       throw new Error('ClusterManager.start() should only be called from master process');
     }
@@ -67,9 +65,11 @@ class ClusterManager extends EventEmitter {
     this.logger.info('Master process running', { pid: process.pid });
     this.logger.info('Starting worker processes', { count: this.numWorkers });
 
-    // Fork initial workers
+    // Fork initial workers with throttling to prevent CPU spikes
     for (let i = 0; i < this.numWorkers; i++) {
       this.forkWorker();
+      // Small delay between forks
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     // Setup cluster event listeners
@@ -333,7 +333,7 @@ class ClusterManager extends EventEmitter {
       const workerId = workerIds[i];
       await this.restartWorker(workerId, 'rolling-restart');
       // Wait a bit between restarts to avoid overwhelming the system
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, this.rollingRestartDelay));
     }
 
     this.isRestarting = false;

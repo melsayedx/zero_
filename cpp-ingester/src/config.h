@@ -27,6 +27,7 @@ struct Config {
     size_t read_batch_size = 1000;      // Messages per XREADGROUP
     int writer_threads = 4;             // Parallel writer threads
     int block_ms = 100;                 // XREADGROUP block timeout
+    int polling_interval_ms = 0;        // 0 = Blocking mode, > 0 = Polling mode (ms)
     size_t ring_buffer_size = 100000;   // Lock-free buffer capacity
     
     // Benchmark mode

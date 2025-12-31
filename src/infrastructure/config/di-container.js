@@ -137,7 +137,13 @@ class DIContainer {
     });
 
     // Default log repository now uses Redis for high-throughput ingestion
-    this.instances.logRepository = this.instances.redisLogRepository;
+    // UNLESS USE_DIRECT_INSERT is enabled (for benchmarking "first implementation")
+    if (process.env.USE_DIRECT_INSERT === 'true') {
+      this.logger.warn('USING DIRECT CLICKHOUSE INSERT (First Implementation Mode)');
+      this.instances.logRepository = this.instances.clickhouseRepository;
+    } else {
+      this.instances.logRepository = this.instances.redisLogRepository;
+    }
 
     // Idempotency store for duplicate request prevention
     this.instances.idempotencyStore = new RedisIdempotencyStore(
@@ -171,24 +177,24 @@ class DIContainer {
 
     // Initialize Log Processor Thread Manager
     // Workers run in separate threads for true CPU isolation from main HTTP thread
-    this.instances.logProcessorThreadManager = new LogProcessorThreadManager({
-      workerCount: parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 2,
-      streamKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
-      groupName: process.env.REDIS_CONSUMER_GROUP || 'log-processors',
-      batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 5000,
-      maxBatchSize: parseInt(process.env.WORKER_BUFFER_BATCH_SIZE) || 100000,
-      maxWaitTime: parseInt(process.env.WORKER_BUFFER_WAIT_TIME) || 1000,
-      pollInterval: parseInt(process.env.WORKER_POLL_INTERVAL) || 5,
-      blockMs: parseInt(process.env.WORKER_BLOCK_MS) || 100,
-      claimMinIdleMs: parseInt(process.env.WORKER_CLAIM_MIN_IDLE) || 30000,
-      retryQueueLimit: parseInt(process.env.WORKER_RETRY_QUEUE_LIMIT) || 10000,
-      clickhouseTable: process.env.CLICKHOUSE_TABLE || 'logs',
-      logger: this.logger.child({ component: 'LogProcessorThreadManager' }),
-      recoveryIntervalMs: parseInt(process.env.WORKER_RECOVERY_INTERVAL_MS) || 10000
-    });
+    // this.instances.logProcessorThreadManager = new LogProcessorThreadManager({
+    //   workerCount: parseInt(process.env.LOG_PROCESSOR_WORKER_COUNT) || 2,
+    //   streamKey: process.env.REDIS_LOG_STREAM_KEY || 'logs:stream',
+    //   groupName: process.env.REDIS_CONSUMER_GROUP || 'log-processors',
+    //   batchSize: parseInt(process.env.WORKER_REDIS_BATCH_SIZE) || 5000,
+    //   maxBatchSize: parseInt(process.env.WORKER_BUFFER_BATCH_SIZE) || 100000,
+    //   maxWaitTime: parseInt(process.env.WORKER_BUFFER_WAIT_TIME) || 1000,
+    //   pollInterval: parseInt(process.env.WORKER_POLL_INTERVAL) || 5,
+    //   blockMs: parseInt(process.env.WORKER_BLOCK_MS) || 100,
+    //   claimMinIdleMs: parseInt(process.env.WORKER_CLAIM_MIN_IDLE) || 30000,
+    //   retryQueueLimit: parseInt(process.env.WORKER_RETRY_QUEUE_LIMIT) || 10000,
+    //   clickhouseTable: process.env.CLICKHOUSE_TABLE || 'logs',
+    //   logger: this.logger.child({ component: 'LogProcessorThreadManager' }),
+    //   recoveryIntervalMs: parseInt(process.env.WORKER_RECOVERY_INTERVAL_MS) || 10000
+    // });
 
     // Start all worker threads
-    await this.instances.logProcessorThreadManager.start();
+    // await this.instances.logProcessorThreadManager.start();
 
     this.logger.info('Worker threads initialized');
   }
@@ -230,7 +236,7 @@ class DIContainer {
     this.instances.requestManager = new RequestManager(
       (dataArray) => this.instances.logIngestionService.processBatch(dataArray),
       {
-        maxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 50,
+        maxWaitTime: parseInt(process.env.COALESCER_MAX_WAIT_TIME) || 500,
         maxBatchSize: parseInt(process.env.COALESCER_MAX_BATCH_SIZE) || 5000,
         enabled: process.env.USE_REQUEST_COALESCING === 'true',
         logger: this.instances.logger.child({ component: 'RequestManager' })

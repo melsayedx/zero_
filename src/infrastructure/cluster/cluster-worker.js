@@ -162,11 +162,21 @@ class ClusterWorker {
    * Start periodic health reporting to master
    */
   startHealthReporting() {
-    const interval = this.options.healthReportInterval || 30000; // 30 seconds
+    const baseInterval = this.options.healthReportInterval || 30000;
 
-    setInterval(() => {
-      this.reportHealth();
-    }, interval);
+    // Recursive setTimeout with jitter to prevent thunder herd
+    const scheduleNextReport = () => {
+      // Add random jitter between 0 and 2000ms
+      const jitter = Math.floor(Math.random() * 2000);
+      const delay = baseInterval + jitter;
+
+      setTimeout(() => {
+        this.reportHealth();
+        scheduleNextReport();
+      }, delay);
+    };
+
+    scheduleNextReport();
   }
 
   /**
@@ -264,9 +274,10 @@ class ClusterWorker {
 
       // Wait for active requests to complete (with timeout)
       if (this.app.waitForActiveRequests) {
+        const timeoutMs = this.options.gracefulShutdownTimeout || 25000;
         await Promise.race([
           this.app.waitForActiveRequests(),
-          new Promise(resolve => setTimeout(resolve, 25000)) // 25s timeout
+          new Promise(resolve => setTimeout(resolve, timeoutMs))
         ]);
       }
 

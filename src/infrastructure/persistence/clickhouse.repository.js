@@ -76,8 +76,8 @@ class ClickHouseRepository extends LogRepositoryContract {
       format: 'JSONEachRow',
       clickhouse_settings: {
         // Async insert settings for optimal performance
-        async_insert: 1,
-        wait_for_async_insert: 0,
+        async_insert: parseInt(process.env.CLICKHOUSE_ASYNC_INSERT || '1'),
+        wait_for_async_insert: parseInt(process.env.CLICKHOUSE_WAIT_FOR_ASYNC_INSERT || '0'),
 
         // Compression for reduced network overhead
         enable_http_compression: 1,

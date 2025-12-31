@@ -30,10 +30,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '1'
           memory: 10G
         reservations:
-          cpus: '2'
+          cpus: '1'
           memory: 8G
 
   redis:
@@ -53,7 +53,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
+          cpus: '1'
           memory: 2G
         reservations:
           cpus: '1'

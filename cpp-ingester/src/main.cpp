@@ -80,9 +80,18 @@ int main(int argc, char** argv) {
     
     // Main read loop
     std::cout << "Starting ingestion...\n";
+    if (config.polling_interval_ms > 0) {
+        std::cout << "Polling Mode Enabled: " << config.polling_interval_ms << "ms interval\n";
+    }
+
     while (g_running.load() && consumer.is_running()) {
         size_t read = consumer.read_batch(buffers);
         total_read += read;
+        
+        // Polling delay
+        if (config.polling_interval_ms > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(config.polling_interval_ms));
+        }
         
         // Benchmark mode: exit after target count
         if (config.benchmark_mode && writer.logs_written() >= config.benchmark_count) {

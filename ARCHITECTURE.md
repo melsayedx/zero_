@@ -9,7 +9,7 @@ This application follows the **Onion Architecture** pattern, which promotes stri
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │                      LAYER 4: INFRASTRUCTURE                       │
-│                    (Frameworks & External Systems)                 │
+│                  (Frameworks & External Systems)                   │
 │                                                                    │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
 │  │   Database   │  │   Workers    │  │ Persistence  │              │
@@ -17,7 +17,7 @@ This application follows the **Onion Architecture** pattern, which promotes stri
 │  └──────────────┘  └──────────────┘  └──────────────┘              │
 ├────────────────────────────────────────────────────────────────────┤
 │                      LAYER 3: INTERFACES                           │
-│                    (Adapters & Gateways)                           │
+│                     (Adapters & Gateways)                          │
 │                                                                    │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐     │
 │  │  HTTP/gRPC      │  │   Middleware    │  │   Parsers       │     │
@@ -25,7 +25,7 @@ This application follows the **Onion Architecture** pattern, which promotes stri
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘     │
 ├────────────────────────────────────────────────────────────────────┤
 │                      LAYER 2: APPLICATION                          │
-│                    (Use Cases & Orchestration)                     │
+│                  (Use Cases & Orchestration)                       │
 │                                                                    │
 │  ┌─────────────────────────────────────────────────────────┐       │
 │  │                    Use Cases                            │       │
@@ -40,7 +40,7 @@ This application follows the **Onion Architecture** pattern, which promotes stri
 │  └─────────────────────────────────────────────────────────┘       │
 ├────────────────────────────────────────────────────────────────────┤
 │                      LAYER 1: DOMAIN                               │
-│                    (Core Business Rules)                           │
+│                   (Core Business Rules)                            │
 │                                                                    │
 │  ┌─────────────────────────────────────────────────────────┐       │
 │  │   Entities      │   Value Objects    │   Contracts      │       │ 
@@ -67,10 +67,10 @@ Dependencies flow: INWARD ONLY (toward the center)
 ```
 
 ### Benefits:
-1. ✅ **Domain is completely isolated** - No dependencies on frameworks or infrastructure
-2. ✅ **Testable** - Each layer can be tested independently with mocks
-3. ✅ **Flexible** - Swap implementations without changing business logic
-4. ✅ **Maintainable** - Clear separation of concerns with enforced boundaries
+1. **Domain is completely isolated** - No dependencies on frameworks or infrastructure
+2. **Testable** - Each layer can be tested independently with mocks
+3. **Flexible** - Swap implementations without changing business logic
+4. **Maintainable** - Clear separation of concerns with enforced boundaries
 
 ## Layers Explained
 
@@ -106,7 +106,7 @@ Dependencies flow: INWARD ONLY (toward the center)
 
 ```
 src/
-├── domain/                     # Layer 1: Domain (innermost - no dependencies)
+├── domain/                    # Layer 1: Domain (innermost - no dependencies)
 │   ├── entities/              # Business objects
 │   │   ├── log-entry.js
 │   │   ├── user.entity.js
@@ -124,7 +124,7 @@ src/
 │       └── retry-strategy.contract.js
 │
 ├── application/               # Layer 2: Application (depends on domain only)
-│   ├── use-cases/            # Business workflows
+│   ├── use-cases/             # Business workflows
 │   │   ├── logs/
 │   │   │   ├── ingest-log.use-case.js
 │   │   │   ├── get-logs-by-app-id.use-case.js
@@ -295,15 +295,15 @@ class ClickHouseRepository extends LogRepositoryContract {
 ```
 
 **Pros:**
-- ✅ Works in plain JavaScript
-- ✅ Shows architectural intent
-- ✅ Provides base method definitions
-- ✅ Runtime error if method not implemented
+- Works in plain JavaScript
+- Shows architectural intent
+- Provides base method definitions
+- Runtime error if method not implemented
 
 **Cons:**
-- ❌ No compile-time checking
-- ❌ Can forget to extend contract
-- ❌ Runtime errors only
+- No compile-time checking
+- Can forget to extend contract
+- Runtime errors only
 
 ### With TypeScript (recommended for scaling)
 ```typescript

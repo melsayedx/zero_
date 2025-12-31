@@ -12,8 +12,9 @@
  */
 
 const cluster = require('cluster');
-const ClusterManager = require('./src/adapters/cluster/cluster-manager');
-const { ClusterWorker } = require('./src/adapters/cluster/cluster-worker');
+const ClusterManager = require('./src/infrastructure/cluster/cluster-manager');
+const { ClusterWorker } = require('./src/infrastructure/cluster/cluster-worker');
+const LoggerFactory = require('./src/infrastructure/logging/logger-factory');
 
 // Parse command line arguments
 function parseArgs() {
@@ -39,6 +40,8 @@ function parseArgs() {
 // Master process - manages worker processes
 if (cluster.isMaster || cluster.isPrimary) {
   const config = parseArgs();
+  // Initialize logger
+  const logger = LoggerFactory.getInstance({ mode: 'null' });
 
   console.log('╔════════════════════════════════════════════════════════════════╗');
   console.log('║            ZERO LOG INGEST - CLUSTER MODE                      ║');
@@ -52,45 +55,13 @@ if (cluster.isMaster || cluster.isPrimary) {
     workerRestartDelay: parseInt(process.env.WORKER_RESTART_DELAY) || 5000,
     gracefulShutdownTimeout: parseInt(process.env.GRACEFUL_SHUTDOWN_TIMEOUT) || 30000,
     healthCheckInterval: parseInt(process.env.HEALTH_CHECK_INTERVAL) || 30000,
-    workerMemoryLimit: parseInt(process.env.WORKER_MEMORY_LIMIT) || 1024 * 1024 * 1024
+    workerMemoryLimit: parseInt(process.env.WORKER_MEMORY_LIMIT) || 1024 * 1024 * 1024,
+    rollingRestartDelay: parseInt(process.env.ROLLING_RESTART_DELAY) || 2000,
+    logger: logger.child({ component: 'ClusterManager' })
   });
 
   // Start the cluster
   clusterManager.start();
-
-  // Optional: Expose cluster API endpoint
-  if (process.env.CLUSTER_API_PORT) {
-    startClusterAPI(clusterManager);
-  }
-
-  // Handle cluster-wide events
-  clusterManager.on('ready', () => {
-    console.log('[Cluster] All workers are ready and accepting connections');
-    console.log(`[Cluster] Listening on port ${process.env.PORT || 3000}`);
-    console.log('');
-    console.log('Cluster API commands:');
-    console.log('  kill -USR2 <master-pid>  → Rolling restart');
-    console.log('  kill -TERM <master-pid>  → Graceful shutdown');
-    console.log('');
-  });
-
-  clusterManager.on('workerError', ({ workerId, error }) => {
-    console.error(`[Cluster] Worker ${workerId} error:`, error);
-  });
-
-  // Optional: periodic stats logging
-  if (process.env.LOG_CLUSTER_STATS === 'true') {
-    setInterval(() => {
-      const stats = clusterManager.getStats();
-      console.log('[Cluster Stats]', {
-        workers: stats.cluster.activeWorkers,
-        healthy: stats.cluster.healthyWorkers,
-        requests: stats.master.totalRequests,
-        restarts: stats.master.totalRestarts,
-        crashes: stats.master.totalCrashes
-      });
-    }, 60000); // Every minute
-  }
 }
 
 // Worker process - runs the application
@@ -108,7 +79,9 @@ else {
 
       // Wrap in cluster worker
       const clusterWorker = new ClusterWorker(app, {
-        healthReportInterval: parseInt(process.env.HEALTH_REPORT_INTERVAL) || 30000
+        healthReportInterval: parseInt(process.env.HEALTH_REPORT_INTERVAL) || 30000,
+        gracefulShutdownTimeout: parseInt(process.env.GRACEFUL_SHUTDOWN_TIMEOUT) || 30000,
+        logger: LoggerFactory.getInstance().child({ component: `ClusterWorker-${cluster.worker.id}` })
       });
 
       // Initialize

@@ -72,30 +72,55 @@ size_t RedisConsumer::read_batch(std::vector<std::unique_ptr<LockFreeRingBuffer<
     
     // No lock needed here! Only one reader thread uses redis_read_
     
-    std::string block_str = std::to_string(config_.block_ms);
     std::string count_str = std::to_string(config_.read_batch_size);
     
-    const char* argv[] = {
-        "XREADGROUP", "GROUP",
-        config_.group_name.c_str(),
-        config_.consumer_name.c_str(),
-        "BLOCK", block_str.c_str(),
-        "COUNT", count_str.c_str(),
-        "STREAMS", config_.stream_key.c_str(),
-        ">"
-    };
-    size_t argvlen[] = {
-        10, 5,
-        config_.group_name.size(),
-        config_.consumer_name.size(),
-        5, block_str.size(),
-        5, count_str.size(),
-        7, config_.stream_key.size(),
-        1
-    };
+    std::vector<const char*> argv;
+    std::vector<size_t> argvlen;
+    
+    argv.push_back("XREADGROUP");
+    argvlen.push_back(10);
+    
+    argv.push_back("GROUP");
+    argvlen.push_back(5);
+    
+    argv.push_back(config_.group_name.c_str());
+    argvlen.push_back(config_.group_name.size());
+    
+    argv.push_back(config_.consumer_name.c_str());
+    argvlen.push_back(config_.consumer_name.size());
+    
+    // Only use BLOCK if polling is disabled (interval <= 0)
+    // If polling is enabled, we want a non-blocking check
+    std::string block_str;
+    if (config_.polling_interval_ms <= 0 && config_.block_ms > 0) {
+        block_str = std::to_string(config_.block_ms);
+        argv.push_back("BLOCK");
+        argvlen.push_back(5);
+        
+        argv.push_back(block_str.c_str());
+        argvlen.push_back(block_str.size());
+    }
+    
+    argv.push_back("COUNT");
+    argvlen.push_back(5);
+    
+    argv.push_back(count_str.c_str());
+    argvlen.push_back(count_str.size());
+    
+    argv.push_back("STREAMS");
+    argvlen.push_back(7);
+    
+    argv.push_back(config_.stream_key.c_str());
+    argvlen.push_back(config_.stream_key.size());
+    
+    argv.push_back(">");
+    argvlen.push_back(1);
     
     redisReply* reply = static_cast<redisReply*>(redisCommandArgv(
-        redis_read_, 11, argv, argvlen
+        redis_read_, 
+        static_cast<int>(argv.size()), 
+        argv.data(), 
+        argvlen.data()
     ));
     
     if (!reply) {
