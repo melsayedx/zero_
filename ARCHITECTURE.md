@@ -98,6 +98,7 @@ Dependencies flow: INWARD ONLY (toward the center)
 - **Persistence Repositories**: Implement domain contracts (`ClickHouseRepository`, `RedisLogRepository`)
 - **Workers**: Background job processors
 - **Cluster Management**: Process clustering and worker threads
+- **C++ Ingester**: High-performance native log consumer (alternative to Node.js workers)
 - **Buffers**: Batch buffer, buffer pool optimizations
 - **Retry Strategies**: Error handling and retry mechanisms
 - **Configuration**: DI container, environment configuration
@@ -221,6 +222,24 @@ src/
    ▼
 7. Response flows back up the chain
 ```
+
+## High-Performance Ingestion Path (C++)
+
+For high-throughput requirements (>10k logs/sec), the system supports a **Hybrid Architecture**:
+
+1. **HTTP/Node.js Layer**: Handles request validation and pushes to Redis Stream (Producer).
+2. **C++ Ingester**: Replaces the Node.js `LogProcessor` worker.
+   - Consumes directly from Redis Stream (Consumer Group).
+   - Uses multi-threaded batch processing.
+   - Writes directly to ClickHouse via Native TCP interface.
+   - Supports both Blocking (`BLOCK`) and Polling strategies.
+
+**Benefits:**
+- Zero Garbage Collection overhead
+- predictable low latency
+- significantly higher throughput per core
+- native ClickHouse integration
+
 
 ## Key Principles Applied
 

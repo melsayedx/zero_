@@ -131,6 +131,41 @@ docker-compose up -d
 npm run benchmark
 ```
 
+## Performance Benchmarks
+
+Latest results running `benchmark/http/autocannon-runner.js`:
+
+| Scenario | Throughput | Latency (P99) | Improvement |
+|----------|------------|---------------|-------------|
+| **Baseline (Single Node)** | ~6,071 req/s | 328 ms | 1.0x |
+| **Optimized (Cluster Mode)** | **~17,255 req/s** | **154 ms** | **2.8x** |
+
+> **Note:** Optimized run uses Node.js Cluster Mode (All cores) + Worker Threads + Redis Streams buffering.
+
+![Benchmark Results](https://raw.githubusercontent.com/MuhammadElSayedX/zero_/master/uploaded_image_1_1767205503055.png)
+
+---
+
 ## License
 
-MIT
+MIT License
+
+Copyright (c) 2024 Zero Log Ingest
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
