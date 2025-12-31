@@ -2,6 +2,7 @@ require('@dotenvx/dotenvx').config();
 const Redis = require('ioredis');
 const { createClickHouseClient } = require('../../src/infrastructure/database/clickhouse');
 const RedisStreamQueue = require('../../src/infrastructure/queues/redis-stream-queue');
+const RedisLogRepository = require('../../src/infrastructure/persistence/redis-log.repository');
 const RequestManager = require('../../src/infrastructure/request-processing/request-manager');
 const PerformanceMonitor = require('../lib/PerformanceMonitor');
 const path = require('path');
@@ -36,9 +37,7 @@ async function run() {
 
     // Clean up old benchmark logs to ensure accurate counting
     console.log('Cleaning up old benchmark logs...');
-    await clickhouse.command({
-        query: "ALTER TABLE logs DELETE WHERE app_id = 'benchmark-app'"
-    });
+    await clickhouse.command({ query: "ALTER TABLE logs DELETE WHERE app_id = 'benchmark-app'" });
     // Wait for mutation to process
     await new Promise(r => setTimeout(r, 1000));
 
@@ -49,9 +48,17 @@ async function run() {
     });
     await redisClient.connect();
 
-    // Producer queue - main thread writes to this
+    const streamKey = 'benchmark:workers:stream';
+
+    // Producer repository - main thread writes to this
+    const producerRepo = new RedisLogRepository(redisClient, {
+        streamKey,
+        logger: { info: () => { }, debug: () => { }, error: console.error }
+    });
+
+    // Queue for consumer group initialization and monitoring
     const queue = new RedisStreamQueue(redisClient, {
-        streamKey: 'benchmark:workers:stream',
+        streamKey,
         groupName: 'benchmark-workers-group',
         consumerName: 'benchmark-producer',
         batchSize: CONSUMER_BATCH_SIZE,
@@ -62,20 +69,21 @@ async function run() {
 
     // ===== WORKER THREAD MANAGER (Redis → ClickHouse) =====
     // This matches the project's LogProcessorThreadManager from DI Container
-    const { redisConfig } = require('../../src/infrastructure/database/redis');
     const LogProcessorThreadManager = require('../../src/infrastructure/workers/log-processor-thread-manager');
 
     const threadManager = new LogProcessorThreadManager({
         workerCount: 3,
-        redisConfig: { ...redisConfig, host: process.env.REDIS_HOST || 'localhost', port: process.env.REDIS_PORT || 6379 },
-        streamKey: 'benchmark:workers:stream',
+        streamKey,
         groupName: 'benchmark-workers-group',
         batchSize: CONSUMER_BATCH_SIZE,
+        blockMs: 100,                 // Required for XREADGROUP BLOCK
         maxBatchSize: 10000,
         maxWaitTime: 500,             // Faster flushes for benchmark
         pollInterval: 0,
         claimMinIdleMs: 5000,         // Faster stale claim for benchmark
         retryQueueLimit: 10000,
+        clickhouseTable: 'logs',      // Required: table for worker threads to write to
+        recoveryIntervalMs: 5000,     // Faster recovery for benchmark
         logger: { info: () => { }, warn: () => { }, error: console.error, child: () => ({ info: () => { }, warn: () => { }, error: console.error }) }
     });
 
@@ -86,7 +94,7 @@ async function run() {
     // This matches the project flow: RequestManager coalesces, then writes to Redis
     const producerBatchProcessor = async (batch) => {
         try {
-            // Transform and write directly to Redis stream (like RedisLogRepository.saveBatch)
+            // Transform and write directly to Redis stream (like RedisLogRepository.save)
             const messages = batch.map(item => ({
                 id: item.id,
                 app_id: 'benchmark-app',
@@ -97,7 +105,7 @@ async function run() {
                 environment: 'development'
             }));
 
-            await queue.add(messages);
+            await producerRepo.save(messages);
             return batch.map(() => ({ success: true }));
 
         } catch (error) {

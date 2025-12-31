@@ -1,25 +1,25 @@
 {
   "stage": "03-coalescing-plus-fire-and-forget",
-  "duration": 2.028276398,
+  "duration": 2.0257258169999997,
   "throughput": {
     "totalRequests": 5000,
-    "requestsPerSec": 2465.147257509033,
+    "requestsPerSec": 2468.251111793971,
     "bytesPerSec": 0,
     "failedRequests": 0
   },
   "latency": {
-    "min": 13.921631999999988,
-    "max": 24.01209400000002,
-    "avg": 19.518701152200002,
-    "p50": 20.944508000000013,
-    "p95": 23.59445599999998,
-    "p99": 23.670583000000022,
-    "p999": 23.884296999999975
+    "min": 12.817669999999993,
+    "max": 21.71652400000002,
+    "avg": 17.675096483400132,
+    "p50": 18.935944999999975,
+    "p95": 21.352681999999987,
+    "p99": 21.434620999999993,
+    "p999": 21.589549000000005
   },
   "system": {
-    "avgMemoryHeapMB": 11.207940292358398,
-    "peakMemoryHeapMB": 11.27362060546875,
-    "avgEventLoopLagMs": 10.369045814429686
+    "avgMemoryHeapMB": 11.295226669311523,
+    "peakMemoryHeapMB": 11.360809326171875,
+    "avgEventLoopLagMs": 10.51134132005203
   },
   "description": "Coalescing + Fire-and-Forget (cumulative on Stage 02)"
 }

@@ -5,6 +5,7 @@
   "main": "src/app.js",
   "scripts": {
     "build:proto": "grpc_tools_node_protoc --js_out=import_style=commonjs,binary:src/infrastructure/grpc/generated --grpc_out=grpc_js:src/infrastructure/grpc/generated proto/**/*.proto",
+    "test": "jest",
     "build:proto:ts": "grpc_tools_node_protoc --plugin=protoc-gen-ts=node_modules/.bin/protoc-gen-ts --ts_out=grpc_js:src/infrastructure/grpc/generated proto/**/*.proto",
     "build": "npm run build:proto && node src/app.js",
     "start:http2": "ENABLE_HTTP2=true npm run build",
@@ -63,6 +64,7 @@
     "autocannon": "^8.0.0",
     "chart.js": "^4.5.1",
     "grpc-tools": "^1.13.1",
+    "jest": "^30.2.0",
     "nodemon": "^3.1.11",
     "perf_hooks": "^0.0.1"
   }

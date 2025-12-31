@@ -1,3 +1,5 @@
+const QueryResult = require('./query-result');
+
 class LogRetrievalUseCase {
   constructor(logRepository) {
     this.logRepository = logRepository;

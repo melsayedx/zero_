@@ -1,25 +1,25 @@
 {
   "stage": "04-full-pipeline",
-  "duration": 0.27901652299999996,
+  "duration": 0.20796842799999996,
   "throughput": {
     "totalRequests": 5000,
-    "requestsPerSec": 17920.085686108276,
+    "requestsPerSec": 24042.11085348013,
     "bytesPerSec": 0,
     "failedRequests": 0
   },
   "latency": {
-    "min": 134.057835,
-    "max": 137.520623,
-    "avg": 135.9620954263999,
-    "p50": 136.43221100000002,
-    "p95": 137.094262,
-    "p99": 137.18696100000003,
-    "p999": 137.41009100000002
+    "min": 98.79261600000001,
+    "max": 103.212246,
+    "avg": 101.24665953720037,
+    "p50": 101.717488,
+    "p95": 102.76440400000007,
+    "p99": 102.85287499999998,
+    "p999": 103.07940100000002
   },
   "system": {
-    "avgMemoryHeapMB": 21.143993377685547,
-    "peakMemoryHeapMB": 21.28527069091797,
-    "avgEventLoopLagMs": 23.413248
+    "avgMemoryHeapMB": 24.174842834472656,
+    "peakMemoryHeapMB": 24.277122497558594,
+    "avgEventLoopLagMs": 16.711424
   },
   "pipeline": {
     "consumedLogs": 5000,

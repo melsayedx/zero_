@@ -1,28 +1,28 @@
 {
   "stage": "05-full-pipeline-with-workers",
-  "duration": 0.1468854100000001,
+  "duration": 2.0378810649999997,
   "throughput": {
-    "totalRequests": 5000,
-    "requestsPerSec": 34040.14054220903,
+    "totalRequests": 50000,
+    "requestsPerSec": 24535.288569453394,
     "bytesPerSec": 0,
     "failedRequests": 0
   },
   "latency": {
-    "min": 138.83023100000014,
-    "max": 143.07321000000002,
-    "avg": 141.11854059799964,
-    "p50": 141.54656999999997,
-    "p95": 142.61236099999996,
-    "p99": 142.69915100000003,
-    "p999": 142.88656400000013
+    "min": 281.527552,
+    "max": 1968.574512,
+    "avg": 1753.4441951998415,
+    "p50": 1905.7714790000002,
+    "p95": 1965.2809330000002,
+    "p99": 1967.898565,
+    "p999": 1968.4215720000002
   },
   "system": {
-    "avgMemoryHeapMB": 29.695327758789062,
-    "peakMemoryHeapMB": 29.695327758789062,
-    "avgEventLoopLagMs": 10.674526085470086
+    "avgMemoryHeapMB": 160.44781351089478,
+    "peakMemoryHeapMB": 181.96914672851562,
+    "avgEventLoopLagMs": 12.84219876072413
   },
   "pipeline": {
-    "consumedLogs": 5000,
+    "consumedLogs": 0,
     "description": "RequestManager → Redis Streams → Worker Threads → ClickHouse"
   }
 }

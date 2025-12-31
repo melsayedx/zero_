@@ -66,7 +66,9 @@ private:
     LogEntry parse_message(const char* json_data, size_t len, const char* msg_id);
     
     const Config& config_;
-    redisContext* redis_ = nullptr;
+    redisContext* redis_read_ = nullptr;
+    redisContext* redis_write_ = nullptr;
+    std::mutex write_mutex_;
     std::atomic<bool> running_{true};
     
     // Stats

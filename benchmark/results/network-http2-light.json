@@ -1,0 +1,73 @@
+{
+  "protocol": "HTTP/2",
+  "intensity": "LIGHT",
+  "workload": {
+    "totalRequests": 1000,
+    "concurrency": 10,
+    "batchSizes": [
+      1,
+      10
+    ],
+    "payloadMultiplier": 1
+  },
+  "concurrency": 10,
+  "batchResults": {
+    "1": {
+      "requests": 500,
+      "logsPerRequest": 1,
+      "totalLogs": 500,
+      "successRate": "100.00%",
+      "stage": "network-http2-light",
+      "duration": 0.21256886600000002,
+      "throughput": {
+        "totalRequests": 500,
+        "requestsPerSec": 2352.178893403891,
+        "bytesPerSec": 858545.2960924201,
+        "failedRequests": 0
+      },
+      "latency": {
+        "min": 2.253297000000032,
+        "max": 21.72713300000001,
+        "avg": 3.823285862000001,
+        "p50": 3.5003189999999904,
+        "p95": 5.072930000000014,
+        "p99": 21.100738000000007,
+        "p999": 21.72713300000001
+      },
+      "system": {
+        "avgMemoryHeapMB": 8.53375244140625,
+        "peakMemoryHeapMB": 9.606307983398438,
+        "avgEventLoopLagMs": 10.095843555555557
+      }
+    },
+    "10": {
+      "requests": 500,
+      "logsPerRequest": 10,
+      "totalLogs": 5000,
+      "successRate": "100.00%",
+      "stage": "network-http2-light",
+      "duration": 0.162696049,
+      "throughput": {
+        "totalRequests": 1000,
+        "requestsPerSec": 6146.430759360357,
+        "bytesPerSec": 10430492.998634527,
+        "failedRequests": 0
+      },
+      "latency": {
+        "min": 2.1493010000000368,
+        "max": 5.632763000000011,
+        "avg": 2.881487984000001,
+        "p50": 2.6062939999999912,
+        "p95": 5.1002790000000005,
+        "p99": 5.491982000000007,
+        "p999": 5.632763000000011
+      },
+      "system": {
+        "avgMemoryHeapMB": 8.03875986735026,
+        "peakMemoryHeapMB": 9.606307983398438,
+        "avgEventLoopLagMs": 10.090784237037038
+      }
+    }
+  },
+  "timestamp": "2025-12-29T12:37:27.134Z"
+}

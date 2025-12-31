@@ -1,0 +1,102 @@
+{
+  "protocol": "HTTP/2",
+  "intensity": "INTENSIVE",
+  "workload": {
+    "totalRequests": 10000,
+    "concurrency": 100,
+    "batchSizes": [
+      50,
+      100,
+      500
+    ],
+    "payloadMultiplier": 10
+  },
+  "concurrency": 100,
+  "batchResults": {
+    "50": {
+      "requests": 3333,
+      "logsPerRequest": 50,
+      "totalLogs": 166650,
+      "successRate": "100.00%",
+      "stage": "network-http2-intensive",
+      "duration": 1.2719451080000002,
+      "throughput": {
+        "totalRequests": 3333,
+        "requestsPerSec": 2620.396099671936,
+        "bytesPerSec": 39101550.59930463,
+        "failedRequests": 0
+      },
+      "latency": {
+        "min": 4.338813000000073,
+        "max": 55.86292199999998,
+        "avg": 24.348485677767748,
+        "p50": 22.974130999999943,
+        "p95": 38.417962999999986,
+        "p99": 44.31726699999999,
+        "p999": 52.231888999999995
+      },
+      "system": {
+        "avgMemoryHeapMB": 20.910412470499676,
+        "peakMemoryHeapMB": 37.22901153564453,
+        "avgEventLoopLagMs": 10.91745535014354
+      }
+    },
+    "100": {
+      "requests": 3333,
+      "logsPerRequest": 100,
+      "totalLogs": 333300,
+      "successRate": "100.00%",
+      "stage": "network-http2-intensive",
+      "duration": 1.4731171710000002,
+      "throughput": {
+        "totalRequests": 6666,
+        "requestsPerSec": 4525.0982957960505,
+        "bytesPerSec": 101174410.246556,
+        "failedRequests": 0
+      },
+      "latency": {
+        "min": 6.005277000000206,
+        "max": 55.66220099999987,
+        "avg": 29.263250465346438,
+        "p50": 27.79256600000008,
+        "p95": 42.01140299999997,
+        "p99": 47.102972000000136,
+        "p999": 54.910262999999986
+      },
+      "system": {
+        "avgMemoryHeapMB": 24.79913770235502,
+        "peakMemoryHeapMB": 44.355865478515625,
+        "avgEventLoopLagMs": 10.86768343481426
+      }
+    },
+    "500": {
+      "requests": 3333,
+      "logsPerRequest": 500,
+      "totalLogs": 1666500,
+      "successRate": "100.00%",
+      "stage": "network-http2-intensive",
+      "duration": 6.399313692,
+      "throughput": {
+        "totalRequests": 9999,
+        "requestsPerSec": 1562.5113068765625,
+        "bytesPerSec": 101190836.41883765,
+        "failedRequests": 0
+      },
+      "latency": {
+        "min": 22.60940699999992,
+        "max": 221.53161,
+        "avg": 131.81087223702377,
+        "p50": 133.75846399999955,
+        "p95": 183.97038399999929,
+        "p99": 198.33832299999995,
+        "p999": 216.3235340000001
+      },
+      "system": {
+        "avgMemoryHeapMB": 42.82185570211971,
+        "peakMemoryHeapMB": 82.82322692871094,
+        "avgEventLoopLagMs": 10.838071236450302
+      }
+    }
+  },
+  "timestamp": "2025-12-29T12:37:58.193Z"
+}

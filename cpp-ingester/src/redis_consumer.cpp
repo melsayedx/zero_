@@ -2,51 +2,56 @@
 #include <iostream>
 #include <cstring>
 #include <sstream>
-#include <mutex>
+#include <thread>
 
 namespace ingester {
-
-// Mutex to protect Redis connection (hiredis is not thread-safe)
-static std::mutex redis_mutex;
 
 RedisConsumer::RedisConsumer(const Config& config) : config_(config) {}
 
 RedisConsumer::~RedisConsumer() {
-    if (redis_) {
-        redisFree(redis_);
-    }
+    stop();
+    if (redis_read_) redisFree(redis_read_);
+    if (redis_write_) redisFree(redis_write_);
 }
 
 bool RedisConsumer::connect() {
     struct timeval timeout = {5, 0};
-    redis_ = redisConnectWithTimeout(
+    
+    // Connection 1: Reader (Blocking)
+    redis_read_ = redisConnectWithTimeout(
         config_.redis_host.c_str(), 
         config_.redis_port, 
         timeout
     );
     
-    if (redis_ == nullptr || redis_->err) {
-        if (redis_) {
-            std::cerr << "Redis connection error: " << redis_->errstr << std::endl;
-            redisFree(redis_);
-            redis_ = nullptr;
-        } else {
-            std::cerr << "Redis connection error: can't allocate redis context\n";
-        }
+    if (redis_read_ == nullptr || redis_read_->err) {
+        std::cerr << "Redis Read connection error: " << (redis_read_ ? redis_read_->errstr : "alloc fail") << std::endl;
+        return false;
+    }
+
+    // Connection 2: Writer (ACKs)
+    redis_write_ = redisConnectWithTimeout(
+        config_.redis_host.c_str(), 
+        config_.redis_port, 
+        timeout
+    );
+
+    if (redis_write_ == nullptr || redis_write_->err) {
+        std::cerr << "Redis Write connection error: " << (redis_write_ ? redis_write_->errstr : "alloc fail") << std::endl;
         return false;
     }
     
-    std::cout << "Connected to Redis at " << config_.redis_host 
-              << ":" << config_.redis_port << std::endl;
+    std::cout << "Connected to Redis at " << config_.redis_host << ":" << config_.redis_port << " (Read & Write connections)\n";
     
     return ensure_consumer_group();
 }
 
 bool RedisConsumer::ensure_consumer_group() {
-    std::lock_guard<std::mutex> lock(redis_mutex);
+    // Use write connection for setup commands
+    std::lock_guard<std::mutex> lock(write_mutex_);
     
     redisReply* reply = static_cast<redisReply*>(redisCommand(
-        redis_,
+        redis_write_,
         "XGROUP CREATE %s %s $ MKSTREAM",
         config_.stream_key.c_str(),
         config_.group_name.c_str()
@@ -63,7 +68,7 @@ bool RedisConsumer::ensure_consumer_group() {
 }
 
 size_t RedisConsumer::read_batch(LockFreeRingBuffer<LogEntry>& buffer) {
-    std::lock_guard<std::mutex> lock(redis_mutex);
+    // No lock needed here! Only one reader thread uses redis_read_
     
     std::string block_str = std::to_string(config_.block_ms);
     std::string count_str = std::to_string(config_.read_batch_size);
@@ -88,11 +93,11 @@ size_t RedisConsumer::read_batch(LockFreeRingBuffer<LogEntry>& buffer) {
     };
     
     redisReply* reply = static_cast<redisReply*>(redisCommandArgv(
-        redis_, 11, argv, argvlen
+        redis_read_, 11, argv, argvlen
     ));
     
     if (!reply) {
-        std::cerr << "XREADGROUP failed: " << redis_->errstr << std::endl;
+        if (redis_read_) std::cerr << "XREADGROUP failed: " << redis_read_->errstr << std::endl;
         return 0;
     }
     
@@ -206,7 +211,8 @@ LogEntry RedisConsumer::parse_message(const char* json_data, size_t len, const c
 void RedisConsumer::ack_batch(const std::vector<std::string>& ids) {
     if (ids.empty()) return;
     
-    std::lock_guard<std::mutex> lock(redis_mutex);
+    // Use write connection with lock
+    std::lock_guard<std::mutex> lock(write_mutex_);
     
     std::vector<const char*> argv;
     std::vector<size_t> argvlen;
@@ -226,7 +232,7 @@ void RedisConsumer::ack_batch(const std::vector<std::string>& ids) {
     }
     
     redisReply* reply = static_cast<redisReply*>(redisCommandArgv(
-        redis_,
+        redis_write_,
         static_cast<int>(argv.size()),
         argv.data(),
         argvlen.data()
@@ -238,7 +244,8 @@ void RedisConsumer::ack_batch(const std::vector<std::string>& ids) {
 }
 
 size_t RedisConsumer::recover_pending(LockFreeRingBuffer<LogEntry>& buffer) {
-    std::lock_guard<std::mutex> lock(redis_mutex);
+    // Can use read connection here safely since main loop hasn't started
+    // OR use write connection. Let's use read connection to keep "reading" logic together.
     
     std::string count_str = std::to_string(config_.read_batch_size);
     
@@ -260,7 +267,7 @@ size_t RedisConsumer::recover_pending(LockFreeRingBuffer<LogEntry>& buffer) {
     };
     
     redisReply* reply = static_cast<redisReply*>(redisCommandArgv(
-        redis_, 9, argv, argvlen
+        redis_read_, 9, argv, argvlen
     ));
     
     size_t count = 0;
@@ -313,10 +320,10 @@ size_t RedisConsumer::recover_pending(LockFreeRingBuffer<LogEntry>& buffer) {
 }
 
 size_t RedisConsumer::get_stream_length() {
-    std::lock_guard<std::mutex> lock(redis_mutex);
+    std::lock_guard<std::mutex> lock(write_mutex_);
     
     redisReply* reply = static_cast<redisReply*>(redisCommand(
-        redis_,
+        redis_write_,
         "XLEN %s",
         config_.stream_key.c_str()
     ));

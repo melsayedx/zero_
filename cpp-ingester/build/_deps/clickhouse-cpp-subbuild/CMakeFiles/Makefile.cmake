@@ -10,10 +10,8 @@ set(CMAKE_MAKEFILE_DEPENDS
   "CMakeFiles/3.25.3/CMakeSystem.cmake"
   "CMakeLists.txt"
   "clickhouse-cpp-populate-prefix/tmp/clickhouse-cpp-populate-mkdirs.cmake"
-  "/usr/local/Cellar/cmake/3.25.3/share/cmake/Modules/CMakeDetermineSystem.cmake"
   "/usr/local/Cellar/cmake/3.25.3/share/cmake/Modules/CMakeGenericSystem.cmake"
   "/usr/local/Cellar/cmake/3.25.3/share/cmake/Modules/CMakeInitializeConfigs.cmake"
-  "/usr/local/Cellar/cmake/3.25.3/share/cmake/Modules/CMakeSystem.cmake.in"
   "/usr/local/Cellar/cmake/3.25.3/share/cmake/Modules/CMakeSystemSpecificInformation.cmake"
   "/usr/local/Cellar/cmake/3.25.3/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake"
   "/usr/local/Cellar/cmake/3.25.3/share/cmake/Modules/ExternalProject.cmake"
@@ -35,7 +33,6 @@ set(CMAKE_MAKEFILE_OUTPUTS
 
 # Byproducts of CMake generate step:
 set(CMAKE_MAKEFILE_PRODUCTS
-  "CMakeFiles/3.25.3/CMakeSystem.cmake"
   "clickhouse-cpp-populate-prefix/tmp/clickhouse-cpp-populate-mkdirs.cmake"
   "clickhouse-cpp-populate-prefix/tmp/clickhouse-cpp-populate-gitclone.cmake"
   "clickhouse-cpp-populate-prefix/src/clickhouse-cpp-populate-stamp/clickhouse-cpp-populate-gitinfo.txt"

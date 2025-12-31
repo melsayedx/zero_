@@ -2,6 +2,7 @@ require('@dotenvx/dotenvx').config();
 const Redis = require('ioredis');
 const { createClickHouseClient } = require('../../src/infrastructure/database/clickhouse');
 const RedisStreamQueue = require('../../src/infrastructure/queues/redis-stream-queue');
+const RedisLogRepository = require('../../src/infrastructure/persistence/redis-log.repository');
 const RequestManager = require('../../src/infrastructure/request-processing/request-manager');
 const PerformanceMonitor = require('../lib/PerformanceMonitor');
 const path = require('path');
@@ -28,24 +29,24 @@ async function run() {
         port: process.env.REDIS_PORT || 6379
     });
 
+    const streamKey = 'benchmark:pipeline:stream';
+
     // Clean up previous run to avoid NOGROUP errors or stale data
     try {
-        await producerClient.del('benchmark:pipeline:stream');
+        await producerClient.del(streamKey);
     } catch (e) {
         // ignore
     }
 
-    // Producer Queue (for adding)
-    const producerQueue = new RedisStreamQueue(producerClient, {
-        streamKey: 'benchmark:pipeline:stream',
-        groupName: 'benchmark-pipeline-group',
-        consumerName: 'producer',
+    // Producer Repository (for adding messages)
+    const producerRepo = new RedisLogRepository(producerClient, {
+        streamKey,
         logger: { info: () => { }, debug: () => { }, error: console.error }
     });
 
     // Consumer Queue (for reading)
     const consumerQueue = new RedisStreamQueue(consumerClient, {
-        streamKey: 'benchmark:pipeline:stream',
+        streamKey,
         groupName: 'benchmark-pipeline-group',
         consumerName: 'benchmark-consumer',
         batchSize: CONSUMER_BATCH_SIZE,
@@ -69,13 +70,13 @@ async function run() {
 
         try {
             const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Redis add timeout')), 5000));
+                setTimeout(() => reject(new Error('Redis save timeout')), 5000));
 
-            const ids = await Promise.race([
-                producerQueue.add(messages),
+            await Promise.race([
+                producerRepo.save(messages),
                 timeoutPromise
             ]);
-            totalProduced += ids.length;
+            totalProduced += messages.length;
             if (totalProduced % 1000 < batch.length) {
                 console.log(`[Producer] Total produced: ${totalProduced}`);
             }
