@@ -59,7 +59,9 @@ void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>
     options.SetPassword(config_.clickhouse_password);
     options.SetSendRetries(3);
     options.SetRetryTimeout(std::chrono::seconds(5));
-    options.SetCompressionMethod(CompressionMethod::LZ4);  // Fast compression
+    options.SetConnectionRecvTimeout(std::chrono::seconds(5));
+    options.SetConnectionSendTimeout(std::chrono::seconds(5));
+    options.SetCompressionMethod(CompressionMethod::LZ4);  // Disable to test
     
     std::unique_ptr<Client> client;
     try {
@@ -73,6 +75,28 @@ void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>
     // Pre-allocated batch buffer
     std::vector<LogEntry> batch;
     batch.reserve(config_.batch_size);
+
+    auto write_with_retry = [&](std::vector<LogEntry>& b) {
+        int retries = 3;
+        while (retries > 0) {
+            if (write_batch(b, *client, thread_id)) {
+                return true;
+            }
+            std::cerr << "Thread " << thread_id << " write failed. Retrying... (" << retries << " left)\n";
+            
+            // Reconnect attempt
+            try {
+                client = std::make_unique<Client>(options);
+                std::cout << "Thread " << thread_id << " reconnected\n";
+            } catch (const std::exception& e) {
+                std::cerr << "Thread " << thread_id << " reconnection failed: " << e.what() << "\n";
+            }
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            retries--;
+        }
+        return false;
+    };
     
     while (running_.load() || !buffer->empty()) {
         // Pop logs from ring buffer
@@ -80,7 +104,7 @@ void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>
         
         // Flush when batch is full or timeout (simple: just check size)
         if (batch.size() >= config_.batch_size) {
-            if (write_batch(batch, thread_id)) {
+            if (write_with_retry(batch)) {
                 // Collect Redis IDs for ACK
                 if (on_flush) {
                     std::vector<std::string> ids;
@@ -100,7 +124,7 @@ void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>
             
             // Flush partial batch if we've been waiting
             if (!batch.empty()) {
-                if (write_batch(batch, thread_id)) {
+                if (write_with_retry(batch)) {
                     if (on_flush) {
                         std::vector<std::string> ids;
                         for (const auto& entry : batch) {
@@ -118,7 +142,7 @@ void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>
     
     // Final flush
     if (!batch.empty()) {
-        if (write_batch(batch, thread_id)) {
+        if (write_with_retry(batch)) {
             if (on_flush) {
                 std::vector<std::string> ids;
                 for (const auto& entry : batch) {
@@ -132,7 +156,7 @@ void ClickHouseWriter::writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>
     }
 }
 
-bool ClickHouseWriter::write_batch(const std::vector<LogEntry>& batch, int thread_id) {
+bool ClickHouseWriter::write_batch(const std::vector<LogEntry>& batch, Client& client, int thread_id) {
     if (batch.empty()) return true;
     
     try {
@@ -169,17 +193,10 @@ bool ClickHouseWriter::write_batch(const std::vector<LogEntry>& batch, int threa
         block.AppendColumn("trace_id", trace_id);
         block.AppendColumn("user_id", user_id);
         
-        // Create connection (each batch uses fresh connection for thread safety)
-        ClientOptions options;
-        options.SetHost(config_.clickhouse_host);
-        options.SetPort(config_.clickhouse_native_port);
-        options.SetDefaultDatabase(config_.clickhouse_database);
-        options.SetUser(config_.clickhouse_user);
-        options.SetPassword(config_.clickhouse_password);
-        options.SetCompressionMethod(CompressionMethod::LZ4);
-        
-        Client client(options);
+        // Use passed client
+        std::cout << "Thread " << thread_id << " inserting batch of " << batch.size() << "\n";
         client.Insert(config_.clickhouse_table, block);
+        std::cout << "Thread " << thread_id << " insert complete\n";
         
         logs_written_ += batch.size();
         ++batches_written_;

@@ -45,6 +45,21 @@ The core philosophy of this project is iterative optimization. We didn't just bu
 *   **Zero-Copy Operations**: Careful transfer of data buffers between threads and network to minimize memory copy overhead.
 **Analysis:** The final architecture combines all previous lessons. We maximize I/O with Redis/Clusters and maximize CPU with Worker Threads.
 
+### Stage 6: C++ Ingester (Native Performance)
+**Implementation:** Re-write of the ingestion consumer in C++.
+**Technique:**
+*   **Native Code:** Using C++ for raw speed and minimal memory footprint.
+*   **Efficient Parsing:** SIMD-accelerated JSON parsing (`simdjson`).
+*   **Connection Reuse:** Persistent ClickHouse connections to eliminate TCP handshake overhead.
+**Analysis:** This represents the ultimate optimization step—moving compute-heavy tasks (parsing, batching) out of the managed runtime (Node.js) entirely to native code.
+
+### Stage 7: Protocol Buffers
+**Implementation:** Binary serialization instead of JSON.
+**Technique:**
+*   **Schema-Driven:** Using defined `.proto` contracts (`LogEntry`) instead of schemaless JSON.
+*   **Binary Payload:** Reducing payload size by avoiding repeated field names and using efficient varint encoding.
+**Analysis:** Initial micro-benchmarks show a **54% reduction in size** and **9.4x faster parsing** compared to JSON. This addresses the next bottleneck: Network Bandwidth and CPU parsing overhead.
+
 ---
 
 ## Engineering Deep Dive: Critical Features
@@ -134,3 +149,18 @@ Latest results running `benchmark/http/autocannon-runner.js`:
 
 ![Benchmark Results 6k+](benchmark/baseline_6k.png)
 ![Benchmark Results 17k+](benchmark/optimized_17k.png)
+
+### Ingestion Throughput (Redis -> ClickHouse)
+
+| Implementation | Throughput | Memory Usage | Improvement |
+|----------------|------------|--------------|-------------|
+| **Node.js (4 Workers)** | ~4,214 logs/sec | ~149 MB | 1.0x |
+| **C++ (1 Thread)** | **~11,542 logs/sec** | **~42 MB** | **2.7x** |
+
+### Serialization Efficiency (Micro-benchmark)
+
+| Format | Parsing Speed | Payload Size | Improvement |
+|--------|---------------|--------------|-------------|
+| **JSON** | ~108k ops/sec | 357 bytes | 1.0x |
+| **Protobuf** | **~1,000k ops/sec** | **163 bytes** | **9.4x Speed / 2x Size** |
+

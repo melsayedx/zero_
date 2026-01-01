@@ -1,0 +1,3 @@
+/Users/mody/zero_/zero_/benchmark/proto_vs_json/build/CMakeFiles/proto_benchmark.dir
+/Users/mody/zero_/zero_/benchmark/proto_vs_json/build/CMakeFiles/edit_cache.dir
+/Users/mody/zero_/zero_/benchmark/proto_vs_json/build/CMakeFiles/rebuild_cache.dir

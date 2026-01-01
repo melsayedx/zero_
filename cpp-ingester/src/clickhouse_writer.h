@@ -8,6 +8,11 @@
 #include <vector>
 #include <thread>
 #include <functional>
+#include <mutex>
+
+namespace clickhouse {
+    class Client;
+}
 
 namespace ingester {
 
@@ -54,7 +59,7 @@ public:
     
 private:
     void writer_thread(int thread_id, LockFreeRingBuffer<LogEntry>* buffer, OnFlushCallback on_flush);
-    bool write_batch(const std::vector<LogEntry>& batch, int thread_id);
+    bool write_batch(const std::vector<LogEntry>& batch, clickhouse::Client& client, int thread_id);
     
     const Config& config_;
     std::vector<std::thread> threads_;
