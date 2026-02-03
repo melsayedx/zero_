@@ -14,3 +14,5 @@ clickhouse-logs/
 
 # C++ Ingester build artifacts
 cpp-ingester/build/
+
+benchmark/proto_vs_json/build/
