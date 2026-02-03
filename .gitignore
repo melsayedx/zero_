@@ -16,3 +16,4 @@ clickhouse-logs/
 cpp-ingester/build/
 
 benchmark/proto_vs_json/build/
+benchmark_result/
